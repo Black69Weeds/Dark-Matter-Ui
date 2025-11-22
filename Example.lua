@@ -1,121 +1,114 @@
---[[
-    Eclipse UI Library - Example Script
-
-    This file only uses the library.
-    Make sure your GitHub "Source" file is the Eclipse library that returns Library.
-]]
-
----------------------------------------------------------------------
--- 1. Load the Eclipse library from your GitHub
----------------------------------------------------------------------
-
-local Library = loadstring(game:HttpGet(
+--========================================================
+-- Load Eclipse UI
+--========================================================
+local Eclipse = loadstring(game:HttpGet(
     "https://raw.githubusercontent.com/Black69Weeds/Dark-Matter-Ui/refs/heads/main/Source"
 ))()
---  ^ This should return the Library table from your Source file.
 
+--========================================================
+-- ICONS FROM GOOGLE MATERIAL ICONS (YOUR UPLOADS)
+--========================================================
+local Icons = {
+    home       = "rbxassetid://12345678901", -- Home icon you uploaded
+    visibility = "rbxassetid://12345678902", -- Eye icon (Visibility)
+    target     = "rbxassetid://12345678903", -- Crosshair icon (Target)
+    person     = "rbxassetid://12345678904", -- Person icon
+    settings   = "rbxassetid://12345678905"  -- Tune/Settings icon
+}
 
----------------------------------------------------------------------
--- 2. Create the main window
----------------------------------------------------------------------
+--========================================================
+-- Create Window
+--========================================================
+local Window = Eclipse:CreateWindow({
+    Name           = "SyzenHub",
+    Subtitle       = "Steal a SpongeBob",
+    Accent         = Color3.fromRGB(0, 255, 128),
+    HomeEnabled    = true,
+    OpenButtonText = "Open SyzenHub",
 
-local Window = Library:CreateWindow({
-    Name   = "Eclipse Hub",                 -- Title text in top bar
-    Accent = Color3.fromRGB(0, 255, 128)    -- Main accent color (toggles / icons)
+    ConfigSettings = {
+        RootFolder   = nil,
+        ConfigFolder = "SyzenHub"
+    },
+
+    KeySystem = true,
+    KeySettings = {
+        Title      = "SyzenHub Key System",
+        Subtitle   = "Steal a SpongeBob",
+        Note       = "Join Discord for the key",
+        SaveKey    = true,
+        Key        = {"SyzenHub"},
+        SecondAction = {
+            Enabled   = true,
+            Type      = "Discord",
+            Parameter = "W8qeVXK8"
+        }
+    }
 })
 
--- NOTE:
--- The window automatically creates:
---  - A sidebar with icons
---  - A top bar with title + minimize + close
---  - A Home dashboard (profile, server stats, game info)
+--========================================================
+-- TABS (These now use YOUR Material Icons)
+--========================================================
+local ESPTab    = Window:CreateTab(Icons.visibility)
+local CombatTab = Window:CreateTab(Icons.target)
+local PlayerTab = Window:CreateTab(Icons.person)
+local Settings  = Window:CreateTab(Icons.settings)
 
+--========================================================
+-- BASIC ESP STRUCTURE
+--========================================================
+local ESPEnabled = false
 
----------------------------------------------------------------------
--- 3. Create tabs (sidebar icons)
----------------------------------------------------------------------
+task.spawn(function()
+    while task.wait(0.2) do
+        if ESPEnabled then
+            print("[ESP] Running...")
+            -- put real ESP code here
+        end
+    end
+end)
 
--- Each tab is created with an icon image id (no text on the button).
--- The returned value is an object you use to add sections, toggles, buttons, etc.
+--========================================================
+-- ESP TAB CONTENT
+--========================================================
+ESPTab:CreateSection("ESP")
 
-local CombatTab   = Window:CreateTab("rbxassetid://10888379573") -- 🗡 Combat
-local VisualsTab  = Window:CreateTab("rbxassetid://10888380809") -- 👁 Visuals
-local SettingsTab = Window:CreateTab("rbxassetid://10888381891") -- ⚙ Settings
+ESPTab:AddToggle("Enable ESP", "ESP_MAIN", function(state)
+    ESPEnabled = state
+end)
 
-
----------------------------------------------------------------------
--- 4. COMBAT TAB
----------------------------------------------------------------------
-
--- Sections are just headers to keep things organized.
+--========================================================
+-- COMBAT TAB CONTENT
+--========================================================
 CombatTab:CreateSection("Aimbot")
 
--- Toggles:
---   AddToggle("Display Name", "FlagName", function(state) ... end)
---   - "FlagName" is stored in Library.Flags[FlagName]
---   - state is true / false
-
-CombatTab:AddToggle("Enable Aimbot", "AimEnabled", function(isEnabled)
-    print("[Combat] Aimbot enabled:", isEnabled)
-    -- TODO: put your aimbot logic here (using isEnabled)
+CombatTab:AddToggle("Silent Aim", "SilentAim", function(v)
+    print("Silent:", v)
 end)
 
-CombatTab:AddToggle("Silent Aim", "SilentEnabled", function(isEnabled)
-    print("[Combat] Silent Aim:", isEnabled)
-    -- TODO: your silent-aim code here
+CombatTab:AddSlider("FOV", "AIM_FOV", 10, 500, 100, function(v)
+    print("FOV:", v)
 end)
 
--- Another section in the same tab
-CombatTab:CreateSection("Gun Mods")
+--========================================================
+-- PLAYER TAB CONTENT
+--========================================================
+PlayerTab:CreateSection("Movement")
 
--- Buttons:
---   AddButton("Display Name", function() ... end)
-
-CombatTab:AddButton("Force Headshot", function()
-    print("[Combat] Force Headshot clicked")
-    -- TODO: do something like setting hitbox / forcing headshot
+PlayerTab:AddTextbox("Custom Tag", "TagName", "Enter text...", function(t)
+    print("Tag:", t)
 end)
 
+--========================================================
+-- SETTINGS / CONFIG TAB
+--========================================================
+Settings:CreateSection("Config")
+Settings:AddConfigSystem()
 
----------------------------------------------------------------------
--- 5. VISUALS TAB
----------------------------------------------------------------------
-
-VisualsTab:CreateSection("ESP Settings")
-
-VisualsTab:AddToggle("Box ESP", "BoxESP", function(isEnabled)
-    print("[Visuals] Box ESP:", isEnabled)
-    -- TODO: enable/disable your Box ESP here
+-- Optional webhook input
+Settings:CreateSection("Webhook")
+Settings:AddWebhookInput("MainWebhook", "Paste Discord webhook here", function(url)
+    print("Webhook saved:", url)
 end)
 
-VisualsTab:AddToggle("Tracers", "Tracers", function(isEnabled)
-    print("[Visuals] Tracers:", isEnabled)
-    -- TODO: enable/disable tracers here
-end)
-
-
----------------------------------------------------------------------
--- 6. SETTINGS TAB (CONFIG SYSTEM)
----------------------------------------------------------------------
-
--- AddConfigSystem() creates:
---   - "Configuration" section
---   - TextBox for config name (e.g. "legit", "rage")
---   - "Save Config" button  → Library:SaveConfig(name)
---   - "Load Config" button  → Library:LoadConfig(name)
---
--- Flags used by toggles above are stored in Library.Flags:
---   Library.Flags["AimEnabled"]
---   Library.Flags["SilentEnabled"]
---   Library.Flags["BoxESP"]
---   Library.Flags["Tracers"]
---   ...and are written into the config JSON file.
-
-SettingsTab:AddConfigSystem()
-
-
----------------------------------------------------------------------
--- 7. Done
----------------------------------------------------------------------
-
-print("[Eclipse Example] Loaded successfully.")
+print("[SyzenHub] Example Loaded (Material Icons)")
