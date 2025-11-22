@@ -1,14 +1,10 @@
 --[[
-    Eclipse UI Library (Syzen Edition)
+    Eclipse UI Library (clean rebuild)
     - Dark modern UI (PC + Mobile)
-    - Optional Home dashboard
-    - Key system (Luna-style settings)
-    - Simple config system (Flags -> JSON)
-    - Elements: Toggle, Slider, Dropdown, Textbox, Note, Webhook helper
-    - Proper minimize vs close (with custom reopen button text)
-    - Supports: Name, Subtitle, LogoID, loading screen, config folders
-
-    Return value: Library
+    - Optional Home Dashboard
+    - Key System (simple but flexible)
+    - Config save/load (Flags -> JSON)
+    - Elements: Toggle / BoxToggle, Slider, Dropdown, Textbox, Label, Button, WebhookInput
 ]]
 
 ---------------------------------------------------------------------
@@ -32,44 +28,39 @@ do
 end
 
 ---------------------------------------------------------------------
--- Library table
+-- Library Table
 ---------------------------------------------------------------------
 local Library = {
-    Flags = {},
+    Flags    = {},
     Webhooks = {},
-
-    Theme = {
+    Folder   = "EclipseConfig",
+    Theme    = {
         Accent     = Color3.fromRGB(114, 137, 218),
         Background = Color3.fromRGB(8, 8, 8),
         Card       = Color3.fromRGB(18, 18, 18),
         Text       = Color3.fromRGB(240, 240, 240),
         TextDim    = Color3.fromRGB(150, 150, 150),
         Outline    = Color3.fromRGB(40, 40, 40)
-    },
-
-    Folder = "EclipseConfig"
+    }
 }
 
 ---------------------------------------------------------------------
--- File helpers (safe when no exploit FS API)
+-- File-system helpers
 ---------------------------------------------------------------------
-local function HasFileAPI()
+local function HasFS()
     return writefile and readfile and isfile and isfolder and makefolder
 end
 
-local function SafeMakeFolder(path)
-    if not HasFileAPI() then return end
+local function SafeFolder(path)
+    if not HasFS() then return end
     if not isfolder(path) then
         pcall(makefolder, path)
     end
 end
 
----------------------------------------------------------------------
--- Config API
----------------------------------------------------------------------
 function Library:SaveConfig(name)
-    if not HasFileAPI() then
-        warn("[Eclipse] File API not available; cannot SaveConfig.")
+    if not HasFS() then
+        warn("[Eclipse] SaveConfig: File API not available.")
         return
     end
     if not name or name == "" then
@@ -77,7 +68,7 @@ function Library:SaveConfig(name)
         return
     end
 
-    SafeMakeFolder(self.Folder)
+    SafeFolder(self.Folder)
 
     local ok, json = pcall(HttpService.JSONEncode, HttpService, self.Flags)
     if not ok then
@@ -87,12 +78,12 @@ function Library:SaveConfig(name)
 
     local path = string.format("%s/%s.json", self.Folder, name)
     writefile(path, json)
-    print("[Eclipse] Config saved at", path)
+    print("[Eclipse] Config saved:", path)
 end
 
 function Library:LoadConfig(name)
-    if not HasFileAPI() then
-        warn("[Eclipse] File API not available; cannot LoadConfig.")
+    if not HasFS() then
+        warn("[Eclipse] LoadConfig: File API not available.")
         return nil
     end
     if not name or name == "" then
@@ -100,10 +91,11 @@ function Library:LoadConfig(name)
         return nil
     end
 
-    SafeMakeFolder(self.Folder)
+    SafeFolder(self.Folder)
 
     local path = string.format("%s/%s.json", self.Folder, name)
     if not isfile(path) then
+        warn("[Eclipse] Config file not found:", path)
         return nil
     end
 
@@ -118,12 +110,12 @@ function Library:LoadConfig(name)
         self.Flags[k] = v
     end
 
-    print("[Eclipse] Config loaded from", path)
+    print("[Eclipse] Config loaded:", path)
     return decoded
 end
 
 ---------------------------------------------------------------------
--- Draggable utility
+-- Draggable
 ---------------------------------------------------------------------
 local function MakeDraggable(header, target)
     local dragging, dragInput, dragStart, startPos
@@ -169,15 +161,17 @@ end
 local function RunKeySystem(configSettings, keySettings)
     if not keySettings then return true end
 
-    local title      = keySettings.Title     or "Key System"
-    local subtitle   = keySettings.Subtitle  or ""
-    local note       = keySettings.Note      or "Please enter the key to continue."
-    local keys       = keySettings.Key       or {}
-    local saveKey    = (keySettings.SaveKey ~= false)
-    local saveRoot   = keySettings.SaveInRoot or false
-    local second     = keySettings.SecondAction or {}
-    local rootFolder = configSettings and configSettings.RootFolder
-    local cfgFolder  = configSettings and configSettings.ConfigFolder or "EclipseConfig"
+    local title    = keySettings.Title    or "Key System"
+    local subtitle = keySettings.Subtitle or ""
+    local note     = keySettings.Note     or "Enter key to continue."
+    local keys     = keySettings.Key      or {}
+
+    local saveKey  = keySettings.SaveKey ~= false
+    local saveRoot = keySettings.SaveInRoot or false
+    local second   = keySettings.SecondAction or {}
+
+    local rootFolder  = configSettings and configSettings.RootFolder
+    local cfgFolder   = configSettings and configSettings.ConfigFolder or "EclipseConfig"
 
     local baseFolder
     if saveRoot and rootFolder and rootFolder ~= "" then
@@ -186,15 +180,13 @@ local function RunKeySystem(configSettings, keySettings)
         baseFolder = cfgFolder
     end
 
-    if HasFileAPI() then
-        if rootFolder and rootFolder ~= "" then
-            SafeMakeFolder(rootFolder)
-        end
-        SafeMakeFolder(baseFolder)
+    if HasFS() then
+        if rootFolder and rootFolder ~= "" then SafeFolder(rootFolder) end
+        SafeFolder(baseFolder)
     end
 
-    -- check existing key
-    if HasFileAPI() and saveKey then
+    -- check saved key
+    if HasFS() and saveKey then
         local path = string.format("%s/%s.key", baseFolder, "EclipseKey")
         if isfile(path) then
             local saved = readfile(path)
@@ -207,14 +199,14 @@ local function RunKeySystem(configSettings, keySettings)
         end
     end
 
-    -- build key GUI
-    local keyGui = Instance.new("ScreenGui")
-    keyGui.Name = "Eclipse_KeyUI"
-    keyGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
-    if CoreGui then keyGui.Parent = CoreGui else keyGui.Parent = LocalPlayer:WaitForChild("PlayerGui") end
+    -- GUI
+    local gui = Instance.new("ScreenGui")
+    gui.Name = "Eclipse_KeyUI"
+    gui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+    if CoreGui then gui.Parent = CoreGui else gui.Parent = LocalPlayer:WaitForChild("PlayerGui") end
 
     local dim = Instance.new("Frame")
-    dim.Parent = keyGui
+    dim.Parent = gui
     dim.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
     dim.BackgroundTransparency = 0.35
     dim.BorderSizePixel = 0
@@ -223,16 +215,16 @@ local function RunKeySystem(configSettings, keySettings)
     local box = Instance.new("Frame")
     box.Parent = dim
     box.BackgroundColor3 = Color3.fromRGB(16, 16, 16)
-    box.Size = UDim2.new(0, 420, 0, 230)
-    box.Position = UDim2.new(0.5, -210, 0.5, -115)
+    box.Size = UDim2.new(0, 420, 0, 220)
+    box.Position = UDim2.new(0.5, -210, 0.5, -110)
     Instance.new("UICorner", box).CornerRadius = UDim.new(0, 10)
-    local bStroke = Instance.new("UIStroke", box)
-    bStroke.Color = Color3.fromRGB(60, 60, 60)
+    local stroke = Instance.new("UIStroke", box)
+    stroke.Color = Color3.fromRGB(60, 60, 60)
 
     local titleLbl = Instance.new("TextLabel")
     titleLbl.Parent = box
     titleLbl.BackgroundTransparency = 1
-    titleLbl.Position = UDim2.new(0, 16, 0, 18)
+    titleLbl.Position = UDim2.new(0, 16, 0, 16)
     titleLbl.Size = UDim2.new(1, -32, 0, 22)
     titleLbl.Font = Enum.Font.GothamBold
     titleLbl.Text = title
@@ -243,7 +235,7 @@ local function RunKeySystem(configSettings, keySettings)
     local subLbl = Instance.new("TextLabel")
     subLbl.Parent = box
     subLbl.BackgroundTransparency = 1
-    subLbl.Position = UDim2.new(0, 16, 0, 42)
+    subLbl.Position = UDim2.new(0, 16, 0, 40)
     subLbl.Size = UDim2.new(1, -32, 0, 18)
     subLbl.Font = Enum.Font.Gotham
     subLbl.Text = subtitle
@@ -254,11 +246,11 @@ local function RunKeySystem(configSettings, keySettings)
     local noteLbl = Instance.new("TextLabel")
     noteLbl.Parent = box
     noteLbl.BackgroundTransparency = 1
-    noteLbl.Position = UDim2.new(0, 16, 0, 66)
-    noteLbl.Size = UDim2.new(1, -32, 0, 36)
+    noteLbl.Position = UDim2.new(0, 16, 0, 64)
+    noteLbl.Size = UDim2.new(1, -32, 0, 34)
     noteLbl.Font = Enum.Font.Gotham
-    noteLbl.Text = note
     noteLbl.TextWrapped = true
+    noteLbl.Text = note
     noteLbl.TextColor3 = Color3.fromRGB(190, 190, 190)
     noteLbl.TextSize = 12
     noteLbl.TextXAlignment = Enum.TextXAlignment.Left
@@ -267,15 +259,15 @@ local function RunKeySystem(configSettings, keySettings)
     local inputFrame = Instance.new("Frame")
     inputFrame.Parent = box
     inputFrame.BackgroundColor3 = Color3.fromRGB(24, 24, 24)
-    inputFrame.Position = UDim2.new(0, 16, 0, 110)
+    inputFrame.Position = UDim2.new(0, 16, 0, 104)
     inputFrame.Size = UDim2.new(1, -32, 0, 32)
     Instance.new("UICorner", inputFrame).CornerRadius = UDim.new(0, 6)
 
     local inputBox = Instance.new("TextBox")
     inputBox.Parent = inputFrame
     inputBox.BackgroundTransparency = 1
-    inputBox.Size = UDim2.new(1, -12, 1, 0)
-    inputBox.Position = UDim2.new(0, 6, 0, 0)
+    inputBox.Size = UDim2.new(1, -10, 1, 0)
+    inputBox.Position = UDim2.new(0, 5, 0, 0)
     inputBox.Font = Enum.Font.Gotham
     inputBox.PlaceholderText = "Enter key here..."
     inputBox.Text = ""
@@ -286,28 +278,28 @@ local function RunKeySystem(configSettings, keySettings)
     local statusLbl = Instance.new("TextLabel")
     statusLbl.Parent = box
     statusLbl.BackgroundTransparency = 1
-    statusLbl.Position = UDim2.new(0, 16, 0, 146)
+    statusLbl.Position = UDim2.new(0, 16, 0, 140)
     statusLbl.Size = UDim2.new(1, -32, 0, 18)
     statusLbl.Font = Enum.Font.Gotham
     statusLbl.Text = ""
-    statusLbl.TextColor3 = Color3.fromRGB(255, 90, 90)
+    statusLbl.TextColor3 = Color3.fromRGB(255, 80, 80)
     statusLbl.TextSize = 12
     statusLbl.TextXAlignment = Enum.TextXAlignment.Left
 
-    local btnHolder = Instance.new("Frame")
-    btnHolder.Parent = box
-    btnHolder.BackgroundTransparency = 1
-    btnHolder.Position = UDim2.new(0, 16, 1, -50)
-    btnHolder.Size = UDim2.new(1, -32, 0, 30)
+    local buttonHolder = Instance.new("Frame")
+    buttonHolder.Parent = box
+    buttonHolder.BackgroundTransparency = 1
+    buttonHolder.Position = UDim2.new(0, 16, 1, -52)
+    buttonHolder.Size = UDim2.new(1, -32, 0, 30)
 
-    local btnList = Instance.new("UIListLayout")
-    btnList.Parent = btnHolder
-    btnList.FillDirection = Enum.FillDirection.Horizontal
-    btnList.Padding = UDim.new(0, 8)
+    local list = Instance.new("UIListLayout")
+    list.Parent = buttonHolder
+    list.FillDirection = Enum.FillDirection.Horizontal
+    list.Padding = UDim.new(0, 8)
 
     local function MakeBtn(text)
         local b = Instance.new("TextButton")
-        b.Parent = btnHolder
+        b.Parent = buttonHolder
         b.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
         b.Size = UDim2.new(0.5, -4, 1, 0)
         b.Font = Enum.Font.GothamSemibold
@@ -319,20 +311,20 @@ local function RunKeySystem(configSettings, keySettings)
     end
 
     local unlockBtn = MakeBtn("Unlock")
-    local secondText = (second.Type == "Discord") and "Get Key (Discord)" or "Open Key Link"
-    local secondBtn  = MakeBtn(secondText)
+    local secondBtnText = (second.Type == "Discord") and "Get Key (Discord)" or "Open Link"
+    local secondBtn = MakeBtn(secondBtnText)
 
-    local function ValidateKey(str)
-        for _, k in ipairs(keys) do
-            if tostring(str) == tostring(k) then
+    local function ValidKey(k)
+        for _, v in ipairs(keys) do
+            if tostring(k) == tostring(v) then
                 return true
             end
         end
         return false
     end
 
-    local function DoSecondAction()
-        if not second or not second.Enabled then return end
+    local function DoSecond()
+        if not second.Enabled then return end
 
         local link
         if second.Type == "Discord" then
@@ -346,37 +338,37 @@ local function RunKeySystem(configSettings, keySettings)
             statusLbl.TextColor3 = Color3.fromRGB(120, 200, 120)
             statusLbl.Text = "Link copied to clipboard."
         else
-            statusLbl.TextColor3 = Color3.fromRGB(255, 255, 110)
-            statusLbl.Text = "Copy this link: " .. link
+            statusLbl.TextColor3 = Color3.fromRGB(255, 255, 120)
+            statusLbl.Text = "Copy link: " .. link
         end
     end
-    secondBtn.MouseButton1Click:Connect(DoSecondAction)
+    secondBtn.MouseButton1Click:Connect(DoSecond)
 
     local accepted = false
 
     local function TryUnlock()
         local text = inputBox.Text or ""
-        if ValidateKey(text) then
+        if ValidKey(text) then
             accepted = true
             statusLbl.TextColor3 = Color3.fromRGB(120, 200, 120)
             statusLbl.Text = "Key accepted."
 
-            if HasFileAPI() and saveKey then
+            if HasFS() and saveKey then
                 local path = string.format("%s/%s.key", baseFolder, "EclipseKey")
-                SafeMakeFolder(baseFolder)
+                SafeFolder(baseFolder)
                 writefile(path, text)
             end
 
-            TweenService:Create(box, TweenInfo.new(0.2), {
+            TweenService:Create(box, TweenInfo.new(0.25), {
                 Size = UDim2.new(0, 420, 0, 0),
                 Position = UDim2.new(0.5, -210, 0.5, 0)
             }):Play()
 
-            task.delay(0.22, function()
-                keyGui:Destroy()
+            task.delay(0.26, function()
+                gui:Destroy()
             end)
         else
-            statusLbl.TextColor3 = Color3.fromRGB(255, 90, 90)
+            statusLbl.TextColor3 = Color3.fromRGB(255, 80, 80)
             statusLbl.Text = "Invalid key."
         end
     end
@@ -396,110 +388,50 @@ local function RunKeySystem(configSettings, keySettings)
 end
 
 ---------------------------------------------------------------------
--- Main window
+-- Create Window
 ---------------------------------------------------------------------
-function Library:CreateWindow(config)
-    config = config or {}
+function Library:CreateWindow(cfg)
+    cfg = cfg or {}
 
-    -- basic settings
-    local windowName      = config.Name or "Eclipse UI"
-    local subtitle        = config.Subtitle
-    local accent          = config.Accent or self.Theme.Accent
-    local logoId          = config.LogoID
-    local homeEnabled     = (config.HomeEnabled ~= false)
-    local openButtonText  = config.OpenButtonText or ("Open " .. windowName)
+    local windowName     = cfg.Name or "Eclipse UI"
+    local subtitle       = cfg.Subtitle
+    local accent         = cfg.Accent or self.Theme.Accent
+    local logoId         = cfg.LogoID
+    local homeEnabled    = (cfg.HomeEnabled ~= false)
+    local openBtnText    = cfg.OpenButtonText or ("Open " .. windowName)
 
-    -- loading
-    local loadingEnabled  = config.LoadingEnabled or false
-    local loadingTitle    = config.LoadingTitle or ("Loading " .. windowName)
-    local loadingSubtitle = config.LoadingSubtitle or ""
+    local cfgSettings    = cfg.ConfigSettings or {}
+    local keySystem      = cfg.KeySystem or false
+    local keySettings    = cfg.KeySettings
 
-    -- config + key settings
-    local cfgSettings     = config.ConfigSettings or {}
-    local keySystem       = config.KeySystem or false
-    local keySettings     = config.KeySettings
+    local rootFolder     = cfgSettings.RootFolder
+    local configFolder   = cfgSettings.ConfigFolder or "EclipseConfig"
 
-    -- set config folder path
-    local rootFolder  = cfgSettings.RootFolder
-    local cfgFolder   = cfgSettings.ConfigFolder or "EclipseConfig"
     if rootFolder and rootFolder ~= "" then
-        self.Folder = rootFolder .. "/" .. cfgFolder
+        self.Folder = rootFolder .. "/" .. configFolder
     else
-        self.Folder = cfgFolder
+        self.Folder = configFolder
     end
 
-    -----------------------------------------------------------------
-    -- Loading screen (optional)
-    -----------------------------------------------------------------
-    if loadingEnabled then
-        local lGui = Instance.new("ScreenGui")
-        lGui.Name = "Eclipse_Loading"
-        lGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
-        if CoreGui then lGui.Parent = CoreGui else lGui.Parent = LocalPlayer:WaitForChild("PlayerGui") end
-
-        local dim = Instance.new("Frame")
-        dim.Parent = lGui
-        dim.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
-        dim.BackgroundTransparency = 0.15
-        dim.BorderSizePixel = 0
-        dim.Size = UDim2.new(1, 0, 1, 0)
-
-        local box = Instance.new("Frame")
-        box.Parent = dim
-        box.BackgroundColor3 = Color3.fromRGB(16, 16, 16)
-        box.Size = UDim2.new(0, 360, 0, 120)
-        box.Position = UDim2.new(0.5, -180, 0.5, -60)
-        Instance.new("UICorner", box).CornerRadius = UDim.new(0, 10)
-
-        local titleLbl = Instance.new("TextLabel")
-        titleLbl.Parent = box
-        titleLbl.BackgroundTransparency = 1
-        titleLbl.Position = UDim2.new(0, 16, 0, 22)
-        titleLbl.Size = UDim2.new(1, -32, 0, 26)
-        titleLbl.Font = Enum.Font.GothamBold
-        titleLbl.Text = loadingTitle
-        titleLbl.TextColor3 = Color3.fromRGB(255, 255, 255)
-        titleLbl.TextSize = 18
-        titleLbl.TextXAlignment = Enum.TextXAlignment.Left
-
-        local subLbl = Instance.new("TextLabel")
-        subLbl.Parent = box
-        subLbl.BackgroundTransparency = 1
-        subLbl.Position = UDim2.new(0, 16, 0, 52)
-        subLbl.Size = UDim2.new(1, -32, 0, 20)
-        subLbl.Font = Enum.Font.Gotham
-        subLbl.Text = loadingSubtitle
-        subLbl.TextColor3 = Color3.fromRGB(180, 180, 180)
-        subLbl.TextSize = 13
-        subLbl.TextXAlignment = Enum.TextXAlignment.Left
-
-        task.wait(1.2)
-        lGui:Destroy()
-    end
-
-    -----------------------------------------------------------------
-    -- Key system
-    -----------------------------------------------------------------
+    -- key system
     if keySystem then
         local ok = RunKeySystem(cfgSettings, keySettings)
         if not ok then
-            warn("[Eclipse] Key system aborted.")
+            warn("[Eclipse] Key check aborted.")
             return
         end
     end
 
-    -----------------------------------------------------------------
-    -- Build main UI
-    -----------------------------------------------------------------
-    local screenGui = Instance.new("ScreenGui")
-    screenGui.Name = "EclipseHub"
-    screenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
-    screenGui.ResetOnSpawn = false
-    if CoreGui then screenGui.Parent = CoreGui else screenGui.Parent = LocalPlayer:WaitForChild("PlayerGui") end
+    -- main GUI
+    local gui = Instance.new("ScreenGui")
+    gui.Name = "EclipseHub"
+    gui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+    gui.ResetOnSpawn = false
+    if CoreGui then gui.Parent = CoreGui else gui.Parent = LocalPlayer:WaitForChild("PlayerGui") end
 
     local main = Instance.new("Frame")
     main.Name = "Main"
-    main.Parent = screenGui
+    main.Parent = gui
     main.BackgroundColor3 = self.Theme.Background
     main.Position = UDim2.new(0.5, -325, 0.5, -210)
     main.Size = UDim2.new(0, 650, 0, 420)
@@ -508,39 +440,37 @@ function Library:CreateWindow(config)
     local mainStroke = Instance.new("UIStroke", main)
     mainStroke.Color = self.Theme.Outline
 
-    -- Sidebar container (transparent; only holds buttons)
+    -- sidebar
     local sidebar = Instance.new("Frame")
     sidebar.Parent = main
     sidebar.BackgroundTransparency = 1
     sidebar.BorderSizePixel = 0
     sidebar.Size = UDim2.new(0, 60, 1, 0)
-    sidebar.ZIndex = 2
 
-    local tabContainer = Instance.new("ScrollingFrame")
-    tabContainer.Parent = sidebar
-    tabContainer.BackgroundTransparency = 1
-    tabContainer.Position = UDim2.new(0, 0, 0, 60)
-    tabContainer.Size = UDim2.new(1, 0, 1, -70)
-    tabContainer.ScrollBarThickness = 0
+    local tabScroll = Instance.new("ScrollingFrame")
+    tabScroll.Parent = sidebar
+    tabScroll.BackgroundTransparency = 1
+    tabScroll.Position = UDim2.new(0, 0, 0, 60)
+    tabScroll.Size = UDim2.new(1, 0, 1, -70)
+    tabScroll.ScrollBarThickness = 0
 
-    local tabList = Instance.new("UIListLayout")
-    tabList.Parent = tabContainer
-    tabList.HorizontalAlignment = Enum.HorizontalAlignment.Center
-    tabList.Padding = UDim.new(0, 8)
-    tabList.SortOrder = Enum.SortOrder.LayoutOrder
-    tabList:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(function()
-        tabContainer.CanvasSize = UDim2.new(0, 0, 0, tabList.AbsoluteContentSize.Y + 20)
+    local tabLayout = Instance.new("UIListLayout")
+    tabLayout.Parent = tabScroll
+    tabLayout.HorizontalAlignment = Enum.HorizontalAlignment.Center
+    tabLayout.Padding = UDim.new(0, 8)
+    tabLayout.SortOrder = Enum.SortOrder.LayoutOrder
+    tabLayout:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(function()
+        tabScroll.CanvasSize = UDim2.new(0, 0, 0, tabLayout.AbsoluteContentSize.Y + 20)
     end)
 
-    -- Top bar
+    -- top bar
     local topBar = Instance.new("Frame")
     topBar.Parent = main
     topBar.BackgroundTransparency = 1
     topBar.Position = UDim2.new(0, 60, 0, 0)
     topBar.Size = UDim2.new(1, -60, 0, 40)
 
-    -- Logo (optional)
-    local titleXOffset = 12
+    local titleOffset = 10
     if logoId then
         local logo = Instance.new("ImageLabel")
         logo.Parent = topBar
@@ -548,14 +478,14 @@ function Library:CreateWindow(config)
         logo.Position = UDim2.new(0, 8, 0, 6)
         logo.Size = UDim2.new(0, 26, 0, 26)
         logo.Image = "rbxassetid://" .. tostring(logoId)
-        titleXOffset = 40
+        titleOffset = 40
     end
 
     local titleLbl = Instance.new("TextLabel")
     titleLbl.Parent = topBar
     titleLbl.BackgroundTransparency = 1
-    titleLbl.Position = UDim2.new(0, titleXOffset, 0, 0)
-    titleLbl.Size = UDim2.new(0, 220, 1, 0)
+    titleLbl.Position = UDim2.new(0, titleOffset, 0, 0)
+    titleLbl.Size = UDim2.new(0, 260, 1, 0)
     titleLbl.Font = Enum.Font.GothamBold
     titleLbl.Text = windowName
     titleLbl.TextColor3 = self.Theme.Text
@@ -566,7 +496,7 @@ function Library:CreateWindow(config)
         local subLbl = Instance.new("TextLabel")
         subLbl.Parent = topBar
         subLbl.BackgroundTransparency = 1
-        subLbl.Position = UDim2.new(0, titleXOffset + titleLbl.TextBounds.X + 4, 0, 0)
+        subLbl.Position = UDim2.new(0, titleOffset + titleLbl.TextBounds.X + 4, 0, 0)
         subLbl.Size = UDim2.new(0, 200, 1, 0)
         subLbl.Font = Enum.Font.Gotham
         subLbl.Text = "  " .. tostring(subtitle)
@@ -575,16 +505,16 @@ function Library:CreateWindow(config)
         subLbl.TextXAlignment = Enum.TextXAlignment.Left
     end
 
-    -- Window controls
-    local controlHolder = Instance.new("Frame")
-    controlHolder.Parent = topBar
-    controlHolder.BackgroundTransparency = 1
-    controlHolder.Position = UDim2.new(1, -80, 0, 0)
-    controlHolder.Size = UDim2.new(0, 80, 1, 0)
+    -- controls (min / close)
+    local ctrl = Instance.new("Frame")
+    ctrl.Parent = topBar
+    ctrl.BackgroundTransparency = 1
+    ctrl.Position = UDim2.new(1, -80, 0, 0)
+    ctrl.Size = UDim2.new(0, 80, 1, 0)
 
-    local function MakeControl(text, color, pos, callback)
+    local function MakeCtrl(text, color, pos, cb)
         local b = Instance.new("TextButton")
-        b.Parent = controlHolder
+        b.Parent = ctrl
         b.BackgroundTransparency = 1
         b.Position = pos
         b.Size = UDim2.new(0.5, 0, 1, 0)
@@ -592,42 +522,41 @@ function Library:CreateWindow(config)
         b.Text = text
         b.TextColor3 = color
         b.TextSize = 14
-        b.MouseButton1Click:Connect(callback)
+        b.MouseButton1Click:Connect(cb)
         return b
     end
 
-    -- Reopen pill (after X)
     local reopen = Instance.new("TextButton")
-    reopen.Parent = screenGui
+    reopen.Parent = gui
     reopen.BackgroundColor3 = self.Theme.Card
     reopen.Position = UDim2.new(0.5, -70, 0, -40)
     reopen.Size = UDim2.new(0, 140, 0, 30)
     reopen.Font = Enum.Font.GothamBold
-    reopen.Text = openButtonText
+    reopen.Text = openBtnText
     reopen.TextColor3 = accent
     reopen.TextSize = 12
     reopen.Visible = false
     Instance.new("UICorner", reopen).CornerRadius = UDim.new(1, 0)
-    local reopenStroke = Instance.new("UIStroke", reopen)
-    reopenStroke.Color = accent
-    reopenStroke.Transparency = 0.4
+    local roStroke = Instance.new("UIStroke", reopen)
+    roStroke.Color = accent
+    roStroke.Transparency = 0.4
 
     local minimized = false
 
-    MakeControl("-", self.Theme.TextDim, UDim2.new(0, 0, 0, 0), function()
+    MakeCtrl("-", self.Theme.TextDim, UDim2.new(0, 0, 0, 0), function()
         minimized = not minimized
         if minimized then
             TweenService:Create(main, TweenInfo.new(0.25), {Size = UDim2.new(0, 650, 0, 40)}):Play()
             sidebar.Visible = false
         else
             TweenService:Create(main, TweenInfo.new(0.25), {Size = UDim2.new(0, 650, 0, 420)}):Play()
-            task.delay(0.15, function()
+            task.delay(0.18, function()
                 sidebar.Visible = true
             end)
         end
     end)
 
-    MakeControl("X", Color3.fromRGB(255, 80, 80), UDim2.new(0.5, 0, 0, 0), function()
+    MakeCtrl("X", Color3.fromRGB(255, 80, 80), UDim2.new(0.5, 0, 0, 0), function()
         main.Visible = false
         reopen.Visible = true
         TweenService:Create(reopen, TweenInfo.new(0.25, Enum.EasingStyle.Back), {
@@ -647,7 +576,7 @@ function Library:CreateWindow(config)
 
     MakeDraggable(topBar, main)
 
-    -- Pages holder
+    -- pages holder
     local pages = Instance.new("Frame")
     pages.Parent = main
     pages.BackgroundTransparency = 1
@@ -657,10 +586,10 @@ function Library:CreateWindow(config)
     -----------------------------------------------------------------
     -- Sidebar button helper
     -----------------------------------------------------------------
-    local buttons = {} -- {Button, Icon, Page}
+    local allButtons = {} -- {Button, Icon, Page}
 
     local function ResetButtons()
-        for _, data in ipairs(buttons) do
+        for _, data in ipairs(allButtons) do
             TweenService:Create(data.Button, TweenInfo.new(0.12), {
                 BackgroundColor3 = Library.Theme.Card
             }):Play()
@@ -668,9 +597,9 @@ function Library:CreateWindow(config)
         end
     end
 
-    local function MakeSidebarButton(iconId, letter)
+    local function MakeTabButton(iconId, letter)
         local btn = Instance.new("TextButton")
-        btn.Parent = tabContainer
+        btn.Parent = tabScroll
         btn.BackgroundColor3 = Library.Theme.Card
         btn.AutoButtonColor = false
         btn.Size = UDim2.new(0, 40, 0, 40)
@@ -680,17 +609,15 @@ function Library:CreateWindow(config)
         stroke.Color = Library.Theme.Outline
         stroke.Thickness = 1
 
-        -- Fallback letter so there is always something visible
-        local lbl = Instance.new("TextLabel")
-        lbl.Parent = btn
-        lbl.BackgroundTransparency = 1
-        lbl.Size = UDim2.new(1, 0, 1, 0)
-        lbl.Font = Enum.Font.GothamBold
-        lbl.Text = letter or "•"
-        lbl.TextColor3 = Library.Theme.TextDim
-        lbl.TextSize = 16
+        local fallback = Instance.new("TextLabel")
+        fallback.Parent = btn
+        fallback.BackgroundTransparency = 1
+        fallback.Size = UDim2.new(1, 0, 1, 0)
+        fallback.Font = Enum.Font.GothamBold
+        fallback.Text = letter or "•"
+        fallback.TextColor3 = Library.Theme.TextDim
+        fallback.TextSize = 16
 
-        -- Icon overlay (if valid id) – letter stays behind
         local icon = Instance.new("ImageLabel")
         icon.Name = "Icon"
         icon.Parent = btn
@@ -711,14 +638,14 @@ function Library:CreateWindow(config)
                 end
             end
         else
-            icon.ImageTransparency = 1 -- no icon, only letter
+            icon.ImageTransparency = 1
         end
 
         return btn, icon
     end
 
     -----------------------------------------------------------------
-    -- Home dashboard (optional)
+    -- Optional Home Dashboard
     -----------------------------------------------------------------
     local homePage
     if homeEnabled then
@@ -728,7 +655,6 @@ function Library:CreateWindow(config)
         homePage.Size = UDim2.new(1, 0, 1, 0)
         homePage.Visible = true
 
-        -- User card
         local userCard = Instance.new("Frame")
         userCard.Parent = homePage
         userCard.BackgroundColor3 = self.Theme.Card
@@ -742,6 +668,7 @@ function Library:CreateWindow(config)
         avatar.Position = UDim2.new(0, 15, 0, 15)
         avatar.Size = UDim2.new(0, 60, 0, 60)
         Instance.new("UICorner", avatar).CornerRadius = UDim.new(1, 0)
+
         task.spawn(function()
             local ok, img = pcall(function()
                 return Players:GetUserThumbnailAsync(
@@ -750,7 +677,9 @@ function Library:CreateWindow(config)
                     Enum.ThumbnailSize.Size100x100
                 )
             end)
-            if ok then avatar.Image = img end
+            if ok then
+                avatar.Image = img
+            end
         end)
 
         local welcome = Instance.new("TextLabel")
@@ -770,12 +699,11 @@ function Library:CreateWindow(config)
         rank.Position = UDim2.new(0, 90, 0, 45)
         rank.Size = UDim2.new(0, 260, 0, 20)
         rank.Font = Enum.Font.Gotham
-        rank.Text = "User | " .. ((identifyexecutor and identifyexecutor()) or "Unknown Executor")
+        rank.Text = "User | " .. ((identifyexecutor and identifyexecutor()) or "Standard Client")
         rank.TextColor3 = accent
         rank.TextSize = 12
         rank.TextXAlignment = Enum.TextXAlignment.Left
 
-        -- Server stats card
         local serverCard = Instance.new("Frame")
         serverCard.Parent = homePage
         serverCard.BackgroundColor3 = self.Theme.Card
@@ -795,51 +723,50 @@ function Library:CreateWindow(config)
         sTitle.TextSize = 12
         sTitle.TextXAlignment = Enum.TextXAlignment.Left
 
-        local function MakeStat(labelText, func, y)
+        local function Stat(label, fn, y)
             local l = Instance.new("TextLabel")
             l.Parent = serverCard
             l.BackgroundTransparency = 1
             l.Position = UDim2.new(0, 15, 0, y)
             l.Size = UDim2.new(1, -30, 0, 20)
             l.Font = Enum.Font.Gotham
-            l.Text = labelText .. ": Loading..."
+            l.Text = label .. ": Loading..."
             l.TextColor3 = self.Theme.Text
             l.TextSize = 12
             l.TextXAlignment = Enum.TextXAlignment.Left
 
             task.spawn(function()
                 while serverCard.Parent do
-                    local ok, v = pcall(func)
+                    local ok, v = pcall(fn)
                     if ok and v ~= nil then
-                        l.Text = labelText .. ": " .. tostring(v)
+                        l.Text = label .. ": " .. tostring(v)
                     end
                     task.wait(1)
                 end
             end)
         end
 
-        MakeStat("Ping", function()
-            local ok, ping = pcall(function()
+        Stat("Ping", function()
+            local ok, p = pcall(function()
                 return LocalPlayer:GetNetworkPing()
             end)
-            if not ok or not ping then return "N/A" end
-            return math.floor(ping * 1000 + 0.5) .. "ms"
+            if not ok or not p then return "N/A" end
+            return math.floor(p * 1000 + 0.5) .. "ms"
         end, 50)
 
-        MakeStat("Players", function()
+        Stat("Players", function()
             return #Players:GetPlayers() .. "/" .. tostring(Players.MaxPlayers or "?")
         end, 80)
 
-        MakeStat("Time", function()
+        Stat("Time", function()
             return os.date("%H:%M")
         end, 110)
 
-        MakeStat("FPS", function()
+        Stat("FPS", function()
             local dt = RunService.RenderStepped:Wait()
             return math.floor(1 / dt + 0.5)
         end, 140)
 
-        -- Game info card
         local infoCard = Instance.new("Frame")
         infoCard.Parent = homePage
         infoCard.BackgroundColor3 = self.Theme.Card
@@ -859,36 +786,35 @@ function Library:CreateWindow(config)
         iTitle.TextSize = 12
         iTitle.TextXAlignment = Enum.TextXAlignment.Left
 
-        local gameName = Instance.new("TextLabel")
-        gameName.Parent = infoCard
-        gameName.BackgroundTransparency = 1
-        gameName.Position = UDim2.new(0, 15, 0, 45)
-        gameName.Size = UDim2.new(1, -30, 0, 40)
-        gameName.Font = Enum.Font.GothamBold
-        gameName.TextColor3 = accent
-        gameName.TextSize = 14
-        gameName.TextWrapped = true
-        gameName.TextXAlignment = Enum.TextXAlignment.Left
-        gameName.TextYAlignment = Enum.TextYAlignment.Top
+        local gameLbl = Instance.new("TextLabel")
+        gameLbl.Parent = infoCard
+        gameLbl.BackgroundTransparency = 1
+        gameLbl.Position = UDim2.new(0, 15, 0, 45)
+        gameLbl.Size = UDim2.new(1, -30, 0, 40)
+        gameLbl.Font = Enum.Font.GothamBold
+        gameLbl.TextColor3 = accent
+        gameLbl.TextSize = 14
+        gameLbl.TextWrapped = true
+        gameLbl.TextXAlignment = Enum.TextXAlignment.Left
+        gameLbl.TextYAlignment = Enum.TextYAlignment.Top
 
         task.spawn(function()
             local ok, info = pcall(function()
                 return MarketplaceService:GetProductInfo(game.PlaceId)
             end)
             if ok and info and info.Name then
-                gameName.Text = info.Name
+                gameLbl.Text = info.Name
             else
-                gameName.Text = "Unknown Game"
+                gameLbl.Text = "Unknown Game"
             end
         end)
 
-        -- Home button (letter H; icon optional)
-        local homeBtn, homeIcon = MakeSidebarButton(nil, "H")
-        table.insert(buttons, {Button = homeBtn, Icon = homeIcon, Page = homePage})
+        local homeBtn, homeIcon = MakeTabButton(nil, "H")
+        table.insert(allButtons, {Button = homeBtn, Icon = homeIcon, Page = homePage})
 
         homeBtn.MouseButton1Click:Connect(function()
-            for _, data in ipairs(buttons) do
-                data.Page.Visible = false
+            for _, d in ipairs(allButtons) do
+                d.Page.Visible = false
             end
             homePage.Visible = true
             ResetButtons()
@@ -904,7 +830,7 @@ function Library:CreateWindow(config)
     end
 
     -----------------------------------------------------------------
-    -- Tabs object
+    -- Tabs API
     -----------------------------------------------------------------
     local Tabs = {}
 
@@ -913,7 +839,7 @@ function Library:CreateWindow(config)
         page.Parent = pages
         page.BackgroundTransparency = 1
         page.Size = UDim2.new(1, 0, 1, 0)
-        page.Visible = (not homeEnabled) and (#pages:GetChildren() == 1) or false
+        page.Visible = (not homeEnabled and #pages:GetChildren() == 1)
         page.ScrollBarThickness = 2
         page.CanvasSize = UDim2.new(0, 0, 0, 0)
 
@@ -925,13 +851,13 @@ function Library:CreateWindow(config)
             page.CanvasSize = UDim2.new(0, 0, 0, layout.AbsoluteContentSize.Y + 20)
         end)
 
-        local btn, icon = MakeSidebarButton(iconId, letter)
+        local btn, icon = MakeTabButton(iconId, letter)
         local data = {Button = btn, Icon = icon, Page = page}
-        table.insert(buttons, data)
+        table.insert(allButtons, data)
 
         btn.MouseButton1Click:Connect(function()
-            for _, info in ipairs(buttons) do
-                info.Page.Visible = false
+            for _, d in ipairs(allButtons) do
+                d.Page.Visible = false
             end
             page.Visible = true
             ResetButtons()
@@ -941,14 +867,14 @@ function Library:CreateWindow(config)
             icon.ImageColor3 = accent
         end)
 
-        if not homeEnabled and #buttons == 1 then
+        if not homeEnabled and #allButtons == 1 then
             page.Visible = true
             TweenService:Create(btn, TweenInfo.new(0.01), {BackgroundColor3 = Color3.fromRGB(26, 26, 26)}):Play()
             icon.ImageColor3 = accent
         end
 
         -------------------------------------------------------------
-        -- Elements inside this tab
+        -- Elements for this tab
         -------------------------------------------------------------
         local Elements = {}
 
@@ -1039,16 +965,16 @@ function Library:CreateWindow(config)
             btn.MouseButton1Click:Connect(Toggle)
             Apply(Library.Flags[flag])
 
-            function frame:Set(val)
-                Library.Flags[flag] = not not val
+            function frame:Set(v)
+                Library.Flags[flag] = not not v
                 Apply(Library.Flags[flag])
             end
 
             return frame
         end
 
-        -- alias for "box toggle" name
-        Elements.AddBoxToggle = Elements:AddToggle
+        -- alias for "box toggle"
+        Elements.AddBoxToggle = Elements.AddToggle
 
         function Elements:AddSlider(text, flag, min, max, default, callback)
             min     = min or 0
@@ -1099,11 +1025,11 @@ function Library:CreateWindow(config)
             fill.Size = UDim2.new(0, 0, 1, 0)
             Instance.new("UICorner", fill).CornerRadius = UDim.new(1, 0)
 
-            local dragBtn = Instance.new("TextButton")
-            dragBtn.Parent = frame
-            dragBtn.BackgroundTransparency = 1
-            dragBtn.Size = UDim2.new(1, 0, 1, 0)
-            dragBtn.Text = ""
+            local dragArea = Instance.new("TextButton")
+            dragArea.Parent = frame
+            dragArea.BackgroundTransparency = 1
+            dragArea.Size = UDim2.new(1, 0, 1, 0)
+            dragArea.Text = ""
 
             local function SetFromValue(v)
                 v = math.clamp(v, min, max)
@@ -1116,7 +1042,7 @@ function Library:CreateWindow(config)
 
             local dragging = false
 
-            dragBtn.InputBegan:Connect(function(input)
+            dragArea.InputBegan:Connect(function(input)
                 if input.UserInputType == Enum.UserInputType.MouseButton1
                 or input.UserInputType == Enum.UserInputType.Touch then
                     dragging = true
@@ -1144,7 +1070,6 @@ function Library:CreateWindow(config)
                 SetFromValue(v)
             end
 
-            -- initial
             SetFromValue(Library.Flags[flag])
 
             return frame
@@ -1152,9 +1077,7 @@ function Library:CreateWindow(config)
 
         function Elements:AddDropdown(text, flag, options, default, callback)
             options = options or {}
-            if #options == 0 then
-                options = {"None"}
-            end
+            if #options == 0 then options = {"None"} end
 
             if Library.Flags[flag] == nil then
                 Library.Flags[flag] = default or options[1]
@@ -1197,11 +1120,11 @@ function Library:CreateWindow(config)
             arrow.TextColor3 = Library.Theme.TextDim
             arrow.TextSize = 12
 
-            local btn = Instance.new("TextButton")
-            btn.Parent = frame
-            btn.BackgroundTransparency = 1
-            btn.Size = UDim2.new(1, 0, 1, 0)
-            btn.Text = ""
+            local click = Instance.new("TextButton")
+            click.Parent = frame
+            click.BackgroundTransparency = 1
+            click.Size = UDim2.new(1, 0, 1, 0)
+            click.Text = ""
 
             local listFrame = Instance.new("Frame")
             listFrame.Parent = page
@@ -1248,7 +1171,7 @@ function Library:CreateWindow(config)
                 end
             end)
 
-            btn.MouseButton1Click:Connect(function()
+            click.MouseButton1Click:Connect(function()
                 open = not open
                 listFrame.Visible = open
                 if open then
@@ -1323,12 +1246,12 @@ function Library:CreateWindow(config)
             return frame
         end
 
-        -- helper specifically for webhook
         function Elements:AddWebhookInput(flag, note, callback)
-            local f = Elements:AddTextbox("Webhook URL", flag, "https://discord.com/api/webhooks/...", function(text)
-                Library.Webhooks[flag] = text
-                if callback then callback(text) end
-            end)
+            local f = Elements:AddTextbox("Webhook URL", flag,
+                "https://discord.com/api/webhooks/...", function(text)
+                    Library.Webhooks[flag] = text
+                    if callback then callback(text) end
+                end)
 
             if note then
                 Elements:AddLabel(note)
@@ -1354,9 +1277,13 @@ function Library:CreateWindow(config)
             btn.TextSize = 13
 
             btn.MouseButton1Click:Connect(function()
-                TweenService:Create(frame, TweenInfo.new(0.08), {BackgroundColor3 = accent}):Play()
+                TweenService:Create(frame, TweenInfo.new(0.08), {
+                    BackgroundColor3 = accent
+                }):Play()
                 task.wait(0.09)
-                TweenService:Create(frame, TweenInfo.new(0.1), {BackgroundColor3 = Library.Theme.Card}):Play()
+                TweenService:Create(frame, TweenInfo.new(0.1), {
+                    BackgroundColor3 = Library.Theme.Card
+                }):Play()
                 if callback then task.spawn(callback) end
             end)
 
@@ -1394,7 +1321,7 @@ function Library:CreateWindow(config)
                     local data = Library:LoadConfig(box.Text)
                     if data then
                         print("[Eclipse] Loaded config table:", data)
-                        -- manual mapping to :Set on elements if you want full visual restore
+                        -- manual mapping to element:Set(...) is up to the user
                     end
                 end
             end)
