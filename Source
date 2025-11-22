@@ -1,21 +1,25 @@
 --[[
     Eclipse UI Library (Luna/Eulen Hybrid)
-    - Modern Dark Theme
-    - Simple Config System (Flags table)
-    - Proper Minimize vs Close logic
-    - Dashboard Home Page
+    - Modern dark theme
+    - Optional Home dashboard
+    - Simple config system (Flags → JSON)
+    - Built-in key system (optional)
+    - Proper minimize vs close (with custom reopen button text)
+    - Optional subtitle, logo, loading screen
 ]]
 
-local TweenService      = game:GetService("TweenService")
-local UserInputService  = game:GetService("UserInputService")
-local HttpService       = game:GetService("HttpService")
-local Players           = game:GetService("Players")
-local RunService        = game:GetService("RunService")
-local MarketplaceService= game:GetService("MarketplaceService")
+---------------------------------------------------------------------
+-- Services
+---------------------------------------------------------------------
+local TweenService       = game:GetService("TweenService")
+local UserInputService   = game:GetService("UserInputService")
+local HttpService        = game:GetService("HttpService")
+local Players            = game:GetService("Players")
+local RunService         = game:GetService("RunService")
+local MarketplaceService = game:GetService("MarketplaceService")
 
 local LocalPlayer = Players.LocalPlayer
 
--- CoreGui may error in some contexts, so use pcall
 local CoreGui
 do
     local ok, cg = pcall(function()
@@ -24,40 +28,50 @@ do
     CoreGui = ok and cg or nil
 end
 
+---------------------------------------------------------------------
+-- Library table
+---------------------------------------------------------------------
 local Library = {
-    Flags = {},
-    Theme = {
-        Accent     = Color3.fromRGB(114, 137, 218), -- default accent
+    Flags  = {},
+    Theme  = {
+        Accent     = Color3.fromRGB(114, 137, 218),
         Background = Color3.fromRGB(10, 10, 10),
         Card       = Color3.fromRGB(18, 18, 18),
         Text       = Color3.fromRGB(240, 240, 240),
         TextDim    = Color3.fromRGB(150, 150, 150),
         Outline    = Color3.fromRGB(35, 35, 35),
     },
-    Folder = "EclipseConfig"
+    Folder = "EclipseConfig", -- will be overridden by ConfigSettings
 }
 
 ---------------------------------------------------------------------
--- CONFIG HELPERS (safe on non-exploits)
+-- File helpers (safe on non-executor environments)
 ---------------------------------------------------------------------
 local function hasFileAPI()
     return writefile and readfile and isfile and isfolder and makefolder
 end
 
+local function safeMakeFolder(path)
+    if not hasFileAPI() then return end
+    if not isfolder(path) then
+        pcall(makefolder, path)
+    end
+end
+
+---------------------------------------------------------------------
+-- Config API (uses Library.Folder)
+---------------------------------------------------------------------
 function Library:SaveConfig(name)
     if not hasFileAPI() then
-        warn("[Eclipse] File API not available (writefile/isfile). Skipping SaveConfig.")
+        warn("[Eclipse] File API not available, cannot SaveConfig.")
         return
     end
-
     if not name or name == "" then
         warn("[Eclipse] SaveConfig called with empty name.")
         return
     end
 
-    if not isfolder(self.Folder) then
-        makefolder(self.Folder)
-    end
+    safeMakeFolder(self.Folder)
 
     local ok, json = pcall(HttpService.JSONEncode, HttpService, self.Flags)
     if not ok then
@@ -67,23 +81,20 @@ function Library:SaveConfig(name)
 
     local path = string.format("%s/%s.json", self.Folder, name)
     writefile(path, json)
-    print("[Eclipse] Config saved to", path)
+    print("[Eclipse] Config saved:", path)
 end
 
 function Library:LoadConfig(name)
     if not hasFileAPI() then
-        warn("[Eclipse] File API not available (readfile/isfile). Skipping LoadConfig.")
+        warn("[Eclipse] File API not available, cannot LoadConfig.")
         return nil
     end
-
     if not name or name == "" then
         warn("[Eclipse] LoadConfig called with empty name.")
         return nil
     end
 
-    if not isfolder(self.Folder) then
-        return nil
-    end
+    safeMakeFolder(self.Folder)
 
     local path = string.format("%s/%s.json", self.Folder, name)
     if not isfile(path) then
@@ -101,12 +112,12 @@ function Library:LoadConfig(name)
         self.Flags[k] = v
     end
 
-    print("[Eclipse] Config loaded from", path)
+    print("[Eclipse] Config loaded:", path)
     return decoded
 end
 
 ---------------------------------------------------------------------
--- DRAGGABLE UTILITY
+-- Draggable utility
 ---------------------------------------------------------------------
 local function MakeDraggable(trigger, object)
     local dragging, dragInput, dragStart, startPos
@@ -134,7 +145,7 @@ local function MakeDraggable(trigger, object)
     end)
 
     UserInputService.InputChanged:Connect(function(input)
-        if input == dragInput and dragging and startPos and dragStart then
+        if input == dragInput and dragging and dragStart and startPos then
             local delta = input.Position - dragStart
             local newPos = UDim2.new(
                 startPos.X.Scale,
@@ -151,15 +162,362 @@ local function MakeDraggable(trigger, object)
 end
 
 ---------------------------------------------------------------------
--- MAIN WINDOW
+-- Key System UI
+---------------------------------------------------------------------
+local function RunKeySystem(configSettings, keySettings)
+    if not keySettings then
+        return true
+    end
+
+    local title     = keySettings.Title or "Key System"
+    local subtitle  = keySettings.Subtitle or ""
+    local note      = keySettings.Note or "Please enter the key to continue."
+    local keys      = keySettings.Key or {}
+    local saveKey   = (keySettings.SaveKey ~= false)
+    local saveInRoot= keySettings.SaveInRoot or false
+    local second    = keySettings.SecondAction or {}
+    local rootFolder= configSettings and configSettings.RootFolder
+    local cfgFolder = configSettings and configSettings.ConfigFolder or "EclipseConfig"
+
+    -- determine folder for key save
+    local baseFolder
+    if saveInRoot and rootFolder and rootFolder ~= "" then
+        baseFolder = rootFolder
+    else
+        baseFolder = cfgFolder
+    end
+
+    if hasFileAPI() then
+        if rootFolder and rootFolder ~= "" then
+            safeMakeFolder(rootFolder)
+        end
+        safeMakeFolder(baseFolder)
+    end
+
+    -- check saved key
+    if hasFileAPI() and saveKey then
+        local keyPath = string.format("%s/%s.key", baseFolder, "eclipse")
+        if isfile(keyPath) then
+            local saved = readfile(keyPath)
+            for _, k in ipairs(keys) do
+                if saved == tostring(k) then
+                    print("[Eclipse] Saved key valid, skipping key UI.")
+                    return true
+                end
+            end
+        end
+    end
+
+    -- no valid saved key → show key UI
+    local screenGui = Instance.new("ScreenGui")
+    screenGui.Name = "EclipseKeyUI"
+    screenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+    if CoreGui then
+        screenGui.Parent = CoreGui
+    else
+        screenGui.Parent = LocalPlayer:WaitForChild("PlayerGui")
+    end
+
+    local blurBg = Instance.new("Frame")
+    blurBg.Parent = screenGui
+    blurBg.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
+    blurBg.BackgroundTransparency = 0.25
+    blurBg.BorderSizePixel = 0
+    blurBg.Size = UDim2.new(1, 0, 1, 0)
+
+    local holder = Instance.new("Frame")
+    holder.Parent = blurBg
+    holder.BackgroundColor3 = Color3.fromRGB(16, 16, 16)
+    holder.Size = UDim2.new(0, 420, 0, 230)
+    holder.Position = UDim2.new(0.5, -210, 0.5, -115)
+    holder.ClipsDescendants = true
+
+    local holderCorner = Instance.new("UICorner")
+    holderCorner.CornerRadius = UDim.new(0, 10)
+    holderCorner.Parent = holder
+
+    local holderStroke = Instance.new("UIStroke")
+    holderStroke.Parent = holder
+    holderStroke.Color = Color3.fromRGB(50, 50, 50)
+
+    local titleLbl = Instance.new("TextLabel")
+    titleLbl.Parent = holder
+    titleLbl.BackgroundTransparency = 1
+    titleLbl.Position = UDim2.new(0, 16, 0, 12)
+    titleLbl.Size = UDim2.new(1, -32, 0, 24)
+    titleLbl.Font = Enum.Font.GothamBold
+    titleLbl.Text = title
+    titleLbl.TextColor3 = Color3.fromRGB(255, 255, 255)
+    titleLbl.TextSize = 18
+    titleLbl.TextXAlignment = Enum.TextXAlignment.Left
+
+    local subLbl = Instance.new("TextLabel")
+    subLbl.Parent = holder
+    subLbl.BackgroundTransparency = 1
+    subLbl.Position = UDim2.new(0, 16, 0, 38)
+    subLbl.Size = UDim2.new(1, -32, 0, 18)
+    subLbl.Font = Enum.Font.Gotham
+    subLbl.Text = subtitle
+    subLbl.TextColor3 = Color3.fromRGB(170, 170, 170)
+    subLbl.TextSize = 13
+    subLbl.TextXAlignment = Enum.TextXAlignment.Left
+
+    local noteLbl = Instance.new("TextLabel")
+    noteLbl.Parent = holder
+    noteLbl.BackgroundTransparency = 1
+    noteLbl.Position = UDim2.new(0, 16, 0, 68)
+    noteLbl.Size = UDim2.new(1, -32, 0, 34)
+    noteLbl.Font = Enum.Font.Gotham
+    noteLbl.Text = note
+    noteLbl.TextWrapped = true
+    noteLbl.TextColor3 = Color3.fromRGB(190, 190, 190)
+    noteLbl.TextSize = 12
+    noteLbl.TextXAlignment = Enum.TextXAlignment.Left
+    noteLbl.TextYAlignment = Enum.TextYAlignment.Top
+
+    local inputFrame = Instance.new("Frame")
+    inputFrame.Parent = holder
+    inputFrame.BackgroundColor3 = Color3.fromRGB(22, 22, 22)
+    inputFrame.Position = UDim2.new(0, 16, 0, 110)
+    inputFrame.Size = UDim2.new(1, -32, 0, 32)
+
+    local inputCorner = Instance.new("UICorner")
+    inputCorner.CornerRadius = UDim.new(0, 6)
+    inputCorner.Parent = inputFrame
+
+    local inputBox = Instance.new("TextBox")
+    inputBox.Parent = inputFrame
+    inputBox.BackgroundTransparency = 1
+    inputBox.Size = UDim2.new(1, -12, 1, 0)
+    inputBox.Position = UDim2.new(0, 6, 0, 0)
+    inputBox.Font = Enum.Font.Gotham
+    inputBox.PlaceholderText = "Enter key here..."
+    inputBox.Text = ""
+    inputBox.TextColor3 = Color3.fromRGB(255, 255, 255)
+    inputBox.TextSize = 13
+    inputBox.TextXAlignment = Enum.TextXAlignment.Left
+
+    local statusLbl = Instance.new("TextLabel")
+    statusLbl.Parent = holder
+    statusLbl.BackgroundTransparency = 1
+    statusLbl.Position = UDim2.new(0, 16, 0, 145)
+    statusLbl.Size = UDim2.new(1, -32, 0, 18)
+    statusLbl.Font = Enum.Font.Gotham
+    statusLbl.Text = ""
+    statusLbl.TextColor3 = Color3.fromRGB(255, 90, 90)
+    statusLbl.TextSize = 12
+    statusLbl.TextXAlignment = Enum.TextXAlignment.Left
+
+    local buttonsHolder = Instance.new("Frame")
+    buttonsHolder.Parent = holder
+    buttonsHolder.BackgroundTransparency = 1
+    buttonsHolder.Position = UDim2.new(0, 16, 1, -50)
+    buttonsHolder.Size = UDim2.new(1, -32, 0, 32)
+
+    local uiList = Instance.new("UIListLayout")
+    uiList.Parent = buttonsHolder
+    uiList.FillDirection = Enum.FillDirection.Horizontal
+    uiList.Padding = UDim.new(0, 8)
+
+    local function createBtn(text)
+        local b = Instance.new("TextButton")
+        b.Parent = buttonsHolder
+        b.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
+        b.Size = UDim2.new(0.5, -4, 1, 0)
+        b.Font = Enum.Font.GothamSemibold
+        b.Text = text
+        b.TextColor3 = Color3.fromRGB(255, 255, 255)
+        b.TextSize = 13
+
+        local c = Instance.new("UICorner")
+        c.CornerRadius = UDim.new(0, 6)
+        c.Parent = b
+
+        return b
+    end
+
+    local submitBtn = createBtn("Unlock")
+    local secondBtn = createBtn(second.Type == "Discord" and "Get Key (Discord)" or "Open Key Link")
+
+    local keyAccepted = false
+
+    local function validateKey(str)
+        for _, k in ipairs(keys) do
+            if tostring(str) == tostring(k) then
+                return true
+            end
+        end
+        return false
+    end
+
+    local function doSecondAction()
+        if not second or not second.Enabled then
+            return
+        end
+
+        local link
+        if second.Type == "Discord" then
+            link = "https://discord.gg/" .. tostring(second.Parameter or "")
+        else
+            link = tostring(second.Parameter or "")
+        end
+
+        if setclipboard then
+            setclipboard(link)
+            statusLbl.TextColor3 = Color3.fromRGB(120, 200, 120)
+            statusLbl.Text = "Link copied to clipboard."
+        else
+            statusLbl.TextColor3 = Color3.fromRGB(255, 255, 110)
+            statusLbl.Text = "Copy this link: " .. link
+        end
+    end
+
+    secondBtn.MouseButton1Click:Connect(doSecondAction)
+
+    local function trySubmit()
+        local entered = inputBox.Text or ""
+        if validateKey(entered) then
+            keyAccepted = true
+            statusLbl.TextColor3 = Color3.fromRGB(120, 200, 120)
+            statusLbl.Text = "Key accepted!"
+
+            if hasFileAPI() and saveKey then
+                local keyPath = string.format("%s/%s.key", baseFolder, "eclipse")
+                safeMakeFolder(baseFolder)
+                writefile(keyPath, entered)
+            end
+
+            TweenService:Create(holder, TweenInfo.new(0.2), {
+                Size = UDim2.new(0, 420, 0, 0),
+                Position = UDim2.new(0.5, -210, 0.5, 0)
+            }):Play()
+
+            task.delay(0.2, function()
+                screenGui:Destroy()
+            end)
+        else
+            statusLbl.TextColor3 = Color3.fromRGB(255, 90, 90)
+            statusLbl.Text = "Invalid key. Please try again."
+        end
+    end
+
+    submitBtn.MouseButton1Click:Connect(trySubmit)
+
+    inputBox.FocusLost:Connect(function(enter)
+        if enter then
+            trySubmit()
+        end
+    end)
+
+    -- wait until keyAccepted
+    while not keyAccepted do
+        RunService.RenderStepped:Wait()
+    end
+
+    return true
+end
+
+---------------------------------------------------------------------
+-- Main window creation
 ---------------------------------------------------------------------
 function Library:CreateWindow(config)
     config = config or {}
 
-    local windowName = config.Name or "Eclipse UI"
-    local accent     = config.Accent or self.Theme.Accent
+    -------------------------------------------------------------
+    -- Read config
+    -------------------------------------------------------------
+    local windowName      = config.Name or "Eclipse UI"
+    local subtitleText    = config.Subtitle or nil
+    local accent          = config.Accent or self.Theme.Accent
+    local logoId          = config.LogoID or nil
+    local homeEnabled     = (config.HomeEnabled ~= false) -- default true
+    local openButtonText  = config.OpenButtonText or ("Open " .. windowName)
 
-    -- ScreenGui
+    local loadingEnabled  = config.LoadingEnabled or false
+    local loadingTitle    = config.LoadingTitle or ("Welcome to " .. windowName)
+    local loadingSubtitle = config.LoadingSubtitle or ""
+
+    local configSettings  = config.ConfigSettings or {}
+    local keySystem       = config.KeySystem or false
+    local keySettings     = config.KeySettings or nil
+
+    -- handle folders for configs
+    local rootFolder  = configSettings.RootFolder
+    local cfgFolder   = configSettings.ConfigFolder or "EclipseConfig"
+    if rootFolder and rootFolder ~= "" then
+        Library.Folder = rootFolder .. "/" .. cfgFolder
+    else
+        Library.Folder = cfgFolder
+    end
+
+    -------------------------------------------------------------
+    -- Optional loading screen (simple)
+    -------------------------------------------------------------
+    if loadingEnabled then
+        local loadGui = Instance.new("ScreenGui")
+        loadGui.Name = "EclipseLoading"
+        loadGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+        if CoreGui then
+            loadGui.Parent = CoreGui
+        else
+            loadGui.Parent = LocalPlayer:WaitForChild("PlayerGui")
+        end
+
+        local bg = Instance.new("Frame")
+        bg.Parent = loadGui
+        bg.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
+        bg.BackgroundTransparency = 0.1
+        bg.BorderSizePixel = 0
+        bg.Size = UDim2.new(1, 0, 1, 0)
+
+        local box = Instance.new("Frame")
+        box.Parent = bg
+        box.BackgroundColor3 = Color3.fromRGB(16, 16, 16)
+        box.Size = UDim2.new(0, 360, 0, 120)
+        box.Position = UDim2.new(0.5, -180, 0.5, -60)
+
+        Instance.new("UICorner", box).CornerRadius = UDim.new(0, 10)
+
+        local t = Instance.new("TextLabel")
+        t.Parent = box
+        t.BackgroundTransparency = 1
+        t.Position = UDim2.new(0, 16, 0, 20)
+        t.Size = UDim2.new(1, -32, 0, 28)
+        t.Font = Enum.Font.GothamBold
+        t.Text = loadingTitle
+        t.TextColor3 = Color3.fromRGB(255, 255, 255)
+        t.TextSize = 18
+        t.TextXAlignment = Enum.TextXAlignment.Left
+
+        local s = Instance.new("TextLabel")
+        s.Parent = box
+        s.BackgroundTransparency = 1
+        s.Position = UDim2.new(0, 16, 0, 50)
+        s.Size = UDim2.new(1, -32, 0, 20)
+        s.Font = Enum.Font.Gotham
+        s.Text = loadingSubtitle
+        s.TextColor3 = Color3.fromRGB(180, 180, 180)
+        s.TextSize = 13
+        s.TextXAlignment = Enum.TextXAlignment.Left
+
+        task.wait(1.3)
+        loadGui:Destroy()
+    end
+
+    -------------------------------------------------------------
+    -- Key system (blocks until key is valid)
+    -------------------------------------------------------------
+    if keySystem then
+        local ok = RunKeySystem(configSettings, keySettings)
+        if not ok then
+            warn("[Eclipse] Key system aborted.")
+            return
+        end
+    end
+
+    -------------------------------------------------------------
+    -- Main ScreenGui
+    -------------------------------------------------------------
     local screenGui = Instance.new("ScreenGui")
     screenGui.Name = "EclipseHub"
     screenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
@@ -179,9 +537,7 @@ function Library:CreateWindow(config)
     main.Size = UDim2.new(0, 650, 0, 420)
     main.ClipsDescendants = true
 
-    local mainCorner = Instance.new("UICorner")
-    mainCorner.CornerRadius = UDim.new(0, 8)
-    mainCorner.Parent = main
+    Instance.new("UICorner", main).CornerRadius = UDim.new(0, 8)
 
     local mainStroke = Instance.new("UIStroke")
     mainStroke.Parent = main
@@ -195,14 +551,11 @@ function Library:CreateWindow(config)
     sidebar.Size = UDim2.new(0, 60, 1, 0)
     sidebar.ZIndex = 2
 
+    Instance.new("UICorner", sidebar).CornerRadius = UDim.new(0, 8)
+
     local sideStroke = Instance.new("UIStroke")
     sideStroke.Parent = sidebar
     sideStroke.Color = self.Theme.Outline
-    sideStroke.Thickness = 1
-
-    local sideCorner = Instance.new("UICorner")
-    sideCorner.CornerRadius = UDim.new(0, 8)
-    sideCorner.Parent = sidebar
 
     local sideCover = Instance.new("Frame")
     sideCover.Parent = sidebar
@@ -216,15 +569,15 @@ function Library:CreateWindow(config)
     local tabContainer = Instance.new("ScrollingFrame")
     tabContainer.Parent = sidebar
     tabContainer.BackgroundTransparency = 1
-    tabContainer.Position = UDim2.new(0, 0, 0, 50)
-    tabContainer.Size = UDim2.new(1, 0, 1, -50)
+    tabContainer.Position = UDim2.new(0, 0, 0, 60)
+    tabContainer.Size = UDim2.new(1, 0, 1, -70)
     tabContainer.ScrollBarThickness = 0
     tabContainer.CanvasSize = UDim2.new(0, 0, 0, 0)
 
     local tabList = Instance.new("UIListLayout")
     tabList.Parent = tabContainer
     tabList.HorizontalAlignment = Enum.HorizontalAlignment.Center
-    tabList.Padding = UDim.new(0, 10)
+    tabList.Padding = UDim.new(0, 8)
     tabList.SortOrder = Enum.SortOrder.LayoutOrder
 
     tabList:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(function()
@@ -238,10 +591,20 @@ function Library:CreateWindow(config)
     topBar.Position = UDim2.new(0, 60, 0, 0)
     topBar.Size = UDim2.new(1, -60, 0, 40)
 
+    -- optional logo
+    if logoId then
+        local logo = Instance.new("ImageLabel")
+        logo.Parent = topBar
+        logo.BackgroundTransparency = 1
+        logo.Position = UDim2.new(0, 8, 0, 7)
+        logo.Size = UDim2.new(0, 24, 0, 24)
+        logo.Image = "rbxassetid://" .. tostring(logoId)
+    end
+
     local titleLbl = Instance.new("TextLabel")
     titleLbl.Parent = topBar
     titleLbl.BackgroundTransparency = 1
-    titleLbl.Position = UDim2.new(0, 15, 0, 0)
+    titleLbl.Position = UDim2.new(0, logoId and 38 or 12, 0, 0)
     titleLbl.Size = UDim2.new(0, 200, 1, 0)
     titleLbl.Font = Enum.Font.GothamBold
     titleLbl.Text = windowName
@@ -249,7 +612,20 @@ function Library:CreateWindow(config)
     titleLbl.TextSize = 14
     titleLbl.TextXAlignment = Enum.TextXAlignment.Left
 
-    -- Control buttons
+    if subtitleText then
+        local sub = Instance.new("TextLabel")
+        sub.Parent = topBar
+        sub.BackgroundTransparency = 1
+        sub.Position = UDim2.new(0, (logoId and 38 or 12) + 6 + titleLbl.TextBounds.X, 0, 0)
+        sub.Size = UDim2.new(0, 200, 1, 0)
+        sub.Font = Enum.Font.Gotham
+        sub.Text = "  " .. tostring(subtitleText)
+        sub.TextColor3 = self.Theme.TextDim
+        sub.TextSize = 13
+        sub.TextXAlignment = Enum.TextXAlignment.Left
+    end
+
+    -- Controls (minimize / close)
     local controlHolder = Instance.new("Frame")
     controlHolder.Parent = topBar
     controlHolder.BackgroundTransparency = 1
@@ -270,17 +646,19 @@ function Library:CreateWindow(config)
         return btn
     end
 
-    -- Open pill (when closed)
+    -- Open pill (after close)
     local openPill = Instance.new("TextButton")
     openPill.Parent = screenGui
     openPill.BackgroundColor3 = self.Theme.Card
-    openPill.Position = UDim2.new(0.5, -60, 0, -50)
-    openPill.Size = UDim2.new(0, 120, 0, 30)
+    openPill.Position = UDim2.new(0.5, -70, 0, -40)
+    openPill.Size = UDim2.new(0, 140, 0, 30)
     openPill.Font = Enum.Font.GothamBold
-    openPill.Text = "Open " .. windowName
+    openPill.Text = openButtonText
     openPill.TextColor3 = accent
     openPill.TextSize = 12
     openPill.Visible = false
+
+    Instance.new("UICorner", openPill).CornerRadius = UDim.new(1, 0)
 
     local openStroke = Instance.new("UIStroke")
     openStroke.Parent = openPill
@@ -288,16 +666,11 @@ function Library:CreateWindow(config)
     openStroke.Thickness = 1
     openStroke.Transparency = 0.5
 
-    local openCorner = Instance.new("UICorner")
-    openCorner.CornerRadius = UDim.new(1, 0)
-    openCorner.Parent = openPill
-
     local isMinimized = false
 
-    -- Minimize: shrink/expand main frame
+    -- minimize
     createControlBtn("-", self.Theme.TextDim, UDim2.new(0, 0, 0, 0), function()
         isMinimized = not isMinimized
-
         if isMinimized then
             TweenService:Create(main, TweenInfo.new(0.25), {
                 Size = UDim2.new(0, 650, 0, 40)
@@ -313,18 +686,18 @@ function Library:CreateWindow(config)
         end
     end)
 
-    -- Close: hide main, show reopen pill
+    -- close
     createControlBtn("X", Color3.fromRGB(255, 80, 80), UDim2.new(0.5, 0, 0, 0), function()
         main.Visible = false
         openPill.Visible = true
-        TweenService:Create(openPill, TweenInfo.new(0.4, Enum.EasingStyle.Back), {
-            Position = UDim2.new(0.5, -60, 0, 20)
+        TweenService:Create(openPill, TweenInfo.new(0.3, Enum.EasingStyle.Back), {
+            Position = UDim2.new(0.5, -70, 0, 12)
         }):Play()
     end)
 
     openPill.MouseButton1Click:Connect(function()
         TweenService:Create(openPill, TweenInfo.new(0.25), {
-            Position = UDim2.new(0.5, -60, 0, -50)
+            Position = UDim2.new(0.5, -70, 0, -40)
         }):Play()
         task.delay(0.18, function()
             openPill.Visible = false
@@ -334,16 +707,18 @@ function Library:CreateWindow(config)
 
     MakeDraggable(topBar, main)
 
-    -- Pages holder
+    -- content pages holder
     local pages = Instance.new("Frame")
     pages.Parent = main
     pages.BackgroundTransparency = 1
     pages.Position = UDim2.new(0, 70, 0, 50)
     pages.Size = UDim2.new(1, -80, 1, -60)
 
-    -----------------------------------------------------------------
-    -- HOME DASHBOARD
-    -----------------------------------------------------------------
+    -------------------------------------------------------------
+    -- HOME dashboard (optional)
+    -------------------------------------------------------------
+    local homeFrame, homeIcon, homeBtn
+
     local function createHome()
         local homeTab = Instance.new("Frame")
         homeTab.Name = "Home"
@@ -355,14 +730,14 @@ function Library:CreateWindow(config)
         -- User card
         local userCard = Instance.new("Frame")
         userCard.Parent = homeTab
-        userCard.BackgroundColor3 = self.Theme.Card
+        userCard.BackgroundColor3 = Library.Theme.Card
         userCard.Size = UDim2.new(1, 0, 0, 90)
         Instance.new("UICorner", userCard).CornerRadius = UDim.new(0, 6)
-        Instance.new("UIStroke", userCard).Color = self.Theme.Outline
+        Instance.new("UIStroke", userCard).Color = Library.Theme.Outline
 
         local pfp = Instance.new("ImageLabel")
         pfp.Parent = userCard
-        pfp.BackgroundColor3 = self.Theme.Background
+        pfp.BackgroundColor3 = Library.Theme.Background
         pfp.Position = UDim2.new(0, 15, 0, 15)
         pfp.Size = UDim2.new(0, 60, 0, 60)
         Instance.new("UICorner", pfp).CornerRadius = UDim.new(1, 0)
@@ -387,7 +762,7 @@ function Library:CreateWindow(config)
         welcome.Size = UDim2.new(0, 260, 0, 20)
         welcome.Font = Enum.Font.GothamBold
         welcome.Text = "Welcome back, " .. LocalPlayer.DisplayName
-        welcome.TextColor3 = self.Theme.Text
+        welcome.TextColor3 = Library.Theme.Text
         welcome.TextSize = 16
         welcome.TextXAlignment = Enum.TextXAlignment.Left
 
@@ -402,43 +777,43 @@ function Library:CreateWindow(config)
         rank.TextSize = 12
         rank.TextXAlignment = Enum.TextXAlignment.Left
 
-        -- Server stats
+        -- server stats
         local serverCard = Instance.new("Frame")
         serverCard.Parent = homeTab
-        serverCard.BackgroundColor3 = self.Theme.Card
+        serverCard.BackgroundColor3 = Library.Theme.Card
         serverCard.Position = UDim2.new(0, 0, 0, 100)
         serverCard.Size = UDim2.new(0.55, -5, 1, -100)
         Instance.new("UICorner", serverCard).CornerRadius = UDim.new(0, 6)
-        Instance.new("UIStroke", serverCard).Color = self.Theme.Outline
+        Instance.new("UIStroke", serverCard).Color = Library.Theme.Outline
 
         local sTitle = Instance.new("TextLabel")
         sTitle.Parent = serverCard
         sTitle.BackgroundTransparency = 1
         sTitle.Position = UDim2.new(0, 15, 0, 15)
-        sTitle.Size = UDim2.new(1, 0, 0, 20)
+        sTitle.Size = UDim2.new(1, -30, 0, 20)
         sTitle.Font = Enum.Font.GothamBold
         sTitle.Text = "Server Statistics"
-        sTitle.TextColor3 = self.Theme.TextDim
+        sTitle.TextColor3 = Library.Theme.TextDim
         sTitle.TextSize = 12
         sTitle.TextXAlignment = Enum.TextXAlignment.Left
 
-        local function makeStat(labelText, valueFunc, yPos)
-            local label = Instance.new("TextLabel")
-            label.Parent = serverCard
-            label.BackgroundTransparency = 1
-            label.Position = UDim2.new(0, 15, 0, yPos)
-            label.Size = UDim2.new(1, -30, 0, 20)
-            label.Font = Enum.Font.Gotham
-            label.Text = labelText .. ": Loading..."
-            label.TextColor3 = self.Theme.Text
-            label.TextSize = 12
-            label.TextXAlignment = Enum.TextXAlignment.Left
+        local function makeStat(labelText, valueFunc, y)
+            local l = Instance.new("TextLabel")
+            l.Parent = serverCard
+            l.BackgroundTransparency = 1
+            l.Position = UDim2.new(0, 15, 0, y)
+            l.Size = UDim2.new(1, -30, 0, 20)
+            l.Font = Enum.Font.Gotham
+            l.Text = labelText .. ": Loading..."
+            l.TextColor3 = Library.Theme.Text
+            l.TextSize = 12
+            l.TextXAlignment = Enum.TextXAlignment.Left
 
             task.spawn(function()
                 while serverCard.Parent do
                     local ok, val = pcall(valueFunc)
                     if ok and val ~= nil then
-                        label.Text = labelText .. ": " .. tostring(val)
+                        l.Text = labelText .. ": " .. tostring(val)
                     end
                     task.wait(1)
                 end
@@ -450,7 +825,7 @@ function Library:CreateWindow(config)
                 return LocalPlayer:GetNetworkPing()
             end)
             if not ok or not ping then return "N/A" end
-            return tostring(math.floor(ping * 1000 + 0.5)) .. "ms"
+            return math.floor(ping * 1000 + 0.5) .. "ms"
         end, 50)
 
         makeStat("Players", function()
@@ -463,131 +838,162 @@ function Library:CreateWindow(config)
 
         makeStat("FPS", function()
             local dt = RunService.RenderStepped:Wait()
-            return tostring(math.floor(1 / dt + 0.5))
+            return math.floor(1 / dt + 0.5)
         end, 140)
 
-        -- Game info card
+        -- game info
         local infoCard = Instance.new("Frame")
         infoCard.Parent = homeTab
-        infoCard.BackgroundColor3 = self.Theme.Card
+        infoCard.BackgroundColor3 = Library.Theme.Card
         infoCard.Position = UDim2.new(0.55, 5, 0, 100)
         infoCard.Size = UDim2.new(0.45, -5, 1, -100)
         Instance.new("UICorner", infoCard).CornerRadius = UDim.new(0, 6)
-        Instance.new("UIStroke", infoCard).Color = self.Theme.Outline
+        Instance.new("UIStroke", infoCard).Color = Library.Theme.Outline
 
         local iTitle = Instance.new("TextLabel")
         iTitle.Parent = infoCard
         iTitle.BackgroundTransparency = 1
         iTitle.Position = UDim2.new(0, 15, 0, 15)
-        iTitle.Size = UDim2.new(1, 0, 0, 20)
+        iTitle.Size = UDim2.new(1, -30, 0, 20)
         iTitle.Font = Enum.Font.GothamBold
         iTitle.Text = "Game Info"
-        iTitle.TextColor3 = self.Theme.TextDim
+        iTitle.TextColor3 = Library.Theme.TextDim
         iTitle.TextSize = 12
         iTitle.TextXAlignment = Enum.TextXAlignment.Left
 
-        local gameName = Instance.new("TextLabel")
-        gameName.Parent = infoCard
-        gameName.BackgroundTransparency = 1
-        gameName.Position = UDim2.new(0, 15, 0, 45)
-        gameName.Size = UDim2.new(1, -30, 0, 40)
-        gameName.Font = Enum.Font.GothamBold
-        gameName.TextColor3 = accent
-        gameName.TextSize = 14
-        gameName.TextWrapped = true
-        gameName.TextXAlignment = Enum.TextXAlignment.Left
-        gameName.TextYAlignment = Enum.TextYAlignment.Top
+        local gName = Instance.new("TextLabel")
+        gName.Parent = infoCard
+        gName.BackgroundTransparency = 1
+        gName.Position = UDim2.new(0, 15, 0, 45)
+        gName.Size = UDim2.new(1, -30, 0, 40)
+        gName.Font = Enum.Font.GothamBold
+        gName.TextColor3 = accent
+        gName.TextSize = 14
+        gName.TextWrapped = true
+        gName.TextXAlignment = Enum.TextXAlignment.Left
+        gName.TextYAlignment = Enum.TextYAlignment.Top
 
         task.spawn(function()
             local ok, info = pcall(function()
                 return MarketplaceService:GetProductInfo(game.PlaceId)
             end)
             if ok and info and info.Name then
-                gameName.Text = info.Name
+                gName.Text = info.Name
             else
-                gameName.Text = "Unknown Game"
+                gName.Text = "Unknown Game"
             end
         end)
 
         return homeTab
     end
 
-    local homeFrame = createHome()
-
-    -----------------------------------------------------------------
-    -- TABS
-    -----------------------------------------------------------------
+    -------------------------------------------------------------
+    -- Tab system
+    -------------------------------------------------------------
     local Tabs = {}
 
-    local function resetTabIcons()
-        for _, v in ipairs(tabContainer:GetChildren()) do
-            if v:IsA("TextButton") and v:FindFirstChild("Icon") then
-                v.Icon.ImageColor3 = Library.Theme.TextDim
+    local function resetTabs()
+        for _, b in ipairs(tabContainer:GetChildren()) do
+            if b:IsA("TextButton") then
+                TweenService:Create(b, TweenInfo.new(0.15), {
+                    BackgroundColor3 = Library.Theme.Card
+                }):Play()
+                local ic = b:FindFirstChild("Icon")
+                if ic then
+                    ic.ImageColor3 = Library.Theme.TextDim
+                end
             end
         end
     end
 
-    -- Home button
-    local homeBtn = Instance.new("TextButton")
-    homeBtn.Parent = tabContainer
-    homeBtn.BackgroundTransparency = 1
-    homeBtn.Size = UDim2.new(0, 40, 0, 40)
-    homeBtn.Text = ""
+    -- Home button (if enabled)
+    if homeEnabled then
+        homeFrame = createHome()
 
-    local homeIcon = Instance.new("ImageLabel")
-    homeIcon.Name = "Icon"
-    homeIcon.Parent = homeBtn
-    homeIcon.BackgroundTransparency = 1
-    homeIcon.Position = UDim2.new(0, 8, 0, 8)
-    homeIcon.Size = UDim2.new(0, 24, 0, 24)
-    homeIcon.Image = "rbxassetid://3926305904"
-    homeIcon.ImageColor3 = accent
+        homeBtn = Instance.new("TextButton")
+        homeBtn.Parent = tabContainer
+        homeBtn.BackgroundColor3 = Library.Theme.Card
+        homeBtn.AutoButtonColor = false
+        homeBtn.Size = UDim2.new(0, 40, 0, 40)
+        homeBtn.Text = ""
 
-    homeBtn.MouseButton1Click:Connect(function()
-        for _, v in ipairs(pages:GetChildren()) do
-            if v:IsA("GuiObject") then
-                v.Visible = false
-            end
-        end
+        local homeCorner = Instance.new("UICorner")
+        homeCorner.CornerRadius = UDim.new(0, 8)
+        homeCorner.Parent = homeBtn
 
-        homeFrame.Visible = true
-        resetTabIcons()
+        local homeStroke = Instance.new("UIStroke")
+        homeStroke.Color = Library.Theme.Outline
+        homeStroke.Thickness = 1
+        homeStroke.Parent = homeBtn
+
+        homeIcon = Instance.new("ImageLabel")
+        homeIcon.Name = "Icon"
+        homeIcon.Parent = homeBtn
+        homeIcon.BackgroundTransparency = 1
+        homeIcon.AnchorPoint = Vector2.new(0.5, 0.5)
+        homeIcon.Position = UDim2.new(0.5, 0, 0.5, 0)
+        homeIcon.Size = UDim2.new(0, 22, 0, 22)
+        homeIcon.Image = "rbxassetid://3926305904"
         homeIcon.ImageColor3 = accent
-    end)
 
-    -----------------------------------------------------------------
-    -- PUBLIC: CreateTab
-    -----------------------------------------------------------------
+        homeBtn.MouseButton1Click:Connect(function()
+            for _, v in ipairs(pages:GetChildren()) do
+                if v:IsA("GuiObject") then
+                    v.Visible = false
+                end
+            end
+            homeFrame.Visible = true
+            resetTabs()
+            TweenService:Create(homeBtn, TweenInfo.new(0.15), {
+                BackgroundColor3 = Color3.fromRGB(26, 26, 26)
+            }):Play()
+            homeIcon.ImageColor3 = accent
+        end)
+    end
+
+    -------------------------------------------------------------
+    -- Public: CreateTab
+    -------------------------------------------------------------
     function Tabs:CreateTab(iconId)
         local page = Instance.new("ScrollingFrame")
         page.Parent = pages
         page.BackgroundTransparency = 1
         page.Size = UDim2.new(1, 0, 1, 0)
-        page.Visible = false
+        page.Visible = not homeEnabled and (#pages:GetChildren() == 1) or false
         page.ScrollBarThickness = 2
         page.CanvasSize = UDim2.new(0, 0, 0, 0)
 
         local pageLayout = Instance.new("UIListLayout")
         pageLayout.Parent = page
         pageLayout.SortOrder = Enum.SortOrder.LayoutOrder
-        pageLayout.Padding = UDim.new(0, 8)
+        pageLayout.Padding = UDim2.new(0, 8)
 
         pageLayout:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(function()
             page.CanvasSize = UDim2.new(0, 0, 0, pageLayout.AbsoluteContentSize.Y + 20)
         end)
 
+        -- sidebar button
         local tabBtn = Instance.new("TextButton")
         tabBtn.Parent = tabContainer
-        tabBtn.BackgroundTransparency = 1
+        tabBtn.BackgroundColor3 = Library.Theme.Card
+        tabBtn.AutoButtonColor = false
         tabBtn.Size = UDim2.new(0, 40, 0, 40)
         tabBtn.Text = ""
+
+        Instance.new("UICorner", tabBtn).CornerRadius = UDim.new(0, 8)
+
+        local tabStroke = Instance.new("UIStroke")
+        tabStroke.Color = Library.Theme.Outline
+        tabStroke.Thickness = 1
+        tabStroke.Parent = tabBtn
 
         local tabIcon = Instance.new("ImageLabel")
         tabIcon.Name = "Icon"
         tabIcon.Parent = tabBtn
         tabIcon.BackgroundTransparency = 1
-        tabIcon.Position = UDim2.new(0, 8, 0, 8)
-        tabIcon.Size = UDim2.new(0, 24, 0, 24)
+        tabIcon.AnchorPoint = Vector2.new(0.5, 0.5)
+        tabIcon.Position = UDim2.new(0.5, 0, 0.5, 0)
+        tabIcon.Size = UDim2.new(0, 22, 0, 22)
         tabIcon.Image = iconId
         tabIcon.ImageColor3 = Library.Theme.TextDim
 
@@ -597,11 +1003,11 @@ function Library:CreateWindow(config)
                     v.Visible = false
                 end
             end
-
-            homeIcon.ImageColor3 = Library.Theme.TextDim
-            resetTabIcons()
-
             page.Visible = true
+            resetTabs()
+            TweenService:Create(tabBtn, TweenInfo.new(0.15), {
+                BackgroundColor3 = Color3.fromRGB(26, 26, 26)
+            }):Play()
             tabIcon.ImageColor3 = accent
         end)
 
@@ -613,7 +1019,7 @@ function Library:CreateWindow(config)
             sec.BackgroundTransparency = 1
             sec.Size = UDim2.new(1, 0, 0, 25)
             sec.Font = Enum.Font.GothamBold
-            sec.Text = "  " .. title
+            sec.Text = "  " .. tostring(title)
             sec.TextColor3 = Library.Theme.TextDim
             sec.TextSize = 11
             sec.TextXAlignment = Enum.TextXAlignment.Left
@@ -657,13 +1063,11 @@ function Library:CreateWindow(config)
             circle.Size = UDim2.new(0, 16, 0, 16)
             Instance.new("UICorner", circle).CornerRadius = UDim.new(1, 0)
 
-            local function applyState(state)
+            local function apply(state)
                 local pos = state and UDim2.new(1, -18, 0.5, -8) or UDim2.new(0, 2, 0.5, -8)
-                local color = state and accent or Color3.fromRGB(40, 40, 40)
-
+                local col = state and accent or Color3.fromRGB(40, 40, 40)
                 TweenService:Create(circle, TweenInfo.new(0.1), {Position = pos}):Play()
-                TweenService:Create(btn, TweenInfo.new(0.1), {BackgroundColor3 = color}):Play()
-
+                TweenService:Create(btn, TweenInfo.new(0.1), {BackgroundColor3 = col}):Play()
                 if callback then
                     task.spawn(callback, state)
                 end
@@ -671,17 +1075,17 @@ function Library:CreateWindow(config)
 
             local function toggle()
                 Library.Flags[flag] = not Library.Flags[flag]
-                applyState(Library.Flags[flag])
+                apply(Library.Flags[flag])
             end
 
             btn.MouseButton1Click:Connect(toggle)
 
             -- init from flag
-            applyState(Library.Flags[flag])
+            apply(Library.Flags[flag])
 
             function frame:Set(val)
                 Library.Flags[flag] = not not val
-                applyState(Library.Flags[flag])
+                apply(Library.Flags[flag])
             end
 
             return frame
@@ -724,7 +1128,7 @@ function Library:CreateWindow(config)
             nameFrame.Parent = page
             nameFrame.BackgroundColor3 = Library.Theme.Card
             nameFrame.Size = UDim2.new(1, -5, 0, 38)
-            Instance.new("UICorner", nameFrame).CornerRadius = UDim.New(0, 6)
+            Instance.new("UICorner", nameFrame).CornerRadius = UDim.new(0, 6)
 
             local box = Instance.new("TextBox")
             box.Parent = nameFrame
@@ -748,7 +1152,7 @@ function Library:CreateWindow(config)
                     local data = Library:LoadConfig(box.Text)
                     if data then
                         print("[Eclipse] Loaded config table:", data)
-                        -- manually map data back into UI if you want full restore
+                        -- you can manually map data back into elements via frame:Set(...)
                     end
                 end
             end)
