@@ -38,7 +38,7 @@ local Library = {
 }
 
 ---------------------------------------------------------------------
--- CONFIG HELPERS (safe on non-exploit environments)
+-- CONFIG HELPERS (safe on non-exploits)
 ---------------------------------------------------------------------
 local function hasFileAPI()
     return writefile and readfile and isfile and isfolder and makefolder
@@ -151,7 +151,7 @@ local function MakeDraggable(trigger, object)
 end
 
 ---------------------------------------------------------------------
--- MAIN WINDOW CREATION
+-- MAIN WINDOW
 ---------------------------------------------------------------------
 function Library:CreateWindow(config)
     config = config or {}
@@ -159,7 +159,7 @@ function Library:CreateWindow(config)
     local windowName = config.Name or "Eclipse UI"
     local accent     = config.Accent or self.Theme.Accent
 
-    -- Main GUI
+    -- ScreenGui
     local screenGui = Instance.new("ScreenGui")
     screenGui.Name = "EclipseHub"
     screenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
@@ -170,7 +170,7 @@ function Library:CreateWindow(config)
         screenGui.Parent = LocalPlayer:WaitForChild("PlayerGui")
     end
 
-    -- Main Frame
+    -- Main frame
     local main = Instance.new("Frame")
     main.Name = "Main"
     main.Parent = screenGui
@@ -204,7 +204,6 @@ function Library:CreateWindow(config)
     sideCorner.CornerRadius = UDim.new(0, 8)
     sideCorner.Parent = sidebar
 
-    -- Sidebar right edge cover
     local sideCover = Instance.new("Frame")
     sideCover.Parent = sidebar
     sideCover.BackgroundColor3 = self.Theme.Card
@@ -213,7 +212,7 @@ function Library:CreateWindow(config)
     sideCover.Size = UDim2.new(0, 5, 1, 0)
     sideCover.ZIndex = 2
 
-    -- Sidebar container
+    -- Sidebar tab container
     local tabContainer = Instance.new("ScrollingFrame")
     tabContainer.Parent = sidebar
     tabContainer.BackgroundTransparency = 1
@@ -228,12 +227,11 @@ function Library:CreateWindow(config)
     tabList.Padding = UDim.new(0, 10)
     tabList.SortOrder = Enum.SortOrder.LayoutOrder
 
-    -- auto canvas size for sidebar
     tabList:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(function()
         tabContainer.CanvasSize = UDim2.new(0, 0, 0, tabList.AbsoluteContentSize.Y + 20)
     end)
 
-    -- Top Bar
+    -- Top bar
     local topBar = Instance.new("Frame")
     topBar.Parent = main
     topBar.BackgroundTransparency = 1
@@ -251,18 +249,18 @@ function Library:CreateWindow(config)
     titleLbl.TextSize = 14
     titleLbl.TextXAlignment = Enum.TextXAlignment.Left
 
-    -- Controls (minimize / close)
+    -- Control buttons
     local controlHolder = Instance.new("Frame")
     controlHolder.Parent = topBar
     controlHolder.BackgroundTransparency = 1
     controlHolder.Position = UDim2.new(1, -80, 0, 0)
     controlHolder.Size = UDim2.new(0, 80, 1, 0)
 
-    local function createControlBtn(text, color, positionUDim, callback)
+    local function createControlBtn(text, color, pos, callback)
         local btn = Instance.new("TextButton")
         btn.Parent = controlHolder
         btn.BackgroundTransparency = 1
-        btn.Position = positionUDim
+        btn.Position = pos
         btn.Size = UDim2.new(0.5, 0, 1, 0)
         btn.Font = Enum.Font.GothamBold
         btn.Text = text
@@ -272,7 +270,7 @@ function Library:CreateWindow(config)
         return btn
     end
 
-    -- Open button (after close)
+    -- Open pill (when closed)
     local openPill = Instance.new("TextButton")
     openPill.Parent = screenGui
     openPill.BackgroundColor3 = self.Theme.Card
@@ -296,7 +294,7 @@ function Library:CreateWindow(config)
 
     local isMinimized = false
 
-    -- Minimize button: shrink / expand, keep GUI open
+    -- Minimize: shrink/expand main frame
     createControlBtn("-", self.Theme.TextDim, UDim2.new(0, 0, 0, 0), function()
         isMinimized = not isMinimized
 
@@ -315,7 +313,7 @@ function Library:CreateWindow(config)
         end
     end)
 
-    -- Close button: hide window, show reopen pill
+    -- Close: hide main, show reopen pill
     createControlBtn("X", Color3.fromRGB(255, 80, 80), UDim2.new(0.5, 0, 0, 0), function()
         main.Visible = false
         openPill.Visible = true
@@ -336,7 +334,7 @@ function Library:CreateWindow(config)
 
     MakeDraggable(topBar, main)
 
-    -- Pages Holder
+    -- Pages holder
     local pages = Instance.new("Frame")
     pages.Parent = main
     pages.BackgroundTransparency = 1
@@ -354,7 +352,7 @@ function Library:CreateWindow(config)
         homeTab.Size = UDim2.new(1, 0, 1, 0)
         homeTab.Visible = true
 
-        -- User Card
+        -- User card
         local userCard = Instance.new("Frame")
         userCard.Parent = homeTab
         userCard.BackgroundColor3 = self.Theme.Card
@@ -404,7 +402,7 @@ function Library:CreateWindow(config)
         rank.TextSize = 12
         rank.TextXAlignment = Enum.TextXAlignment.Left
 
-        -- Server Stats (left)
+        -- Server stats
         local serverCard = Instance.new("Frame")
         serverCard.Parent = homeTab
         serverCard.BackgroundColor3 = self.Theme.Card
@@ -468,7 +466,7 @@ function Library:CreateWindow(config)
             return tostring(math.floor(1 / dt + 0.5))
         end, 140)
 
-        -- Game info (right)
+        -- Game info card
         local infoCard = Instance.new("Frame")
         infoCard.Parent = homeTab
         infoCard.BackgroundColor3 = self.Theme.Card
@@ -517,11 +515,10 @@ function Library:CreateWindow(config)
     local homeFrame = createHome()
 
     -----------------------------------------------------------------
-    -- TAB SYSTEM
+    -- TABS
     -----------------------------------------------------------------
     local Tabs = {}
 
-    -- Helper: reset tab icon colors
     local function resetTabIcons()
         for _, v in ipairs(tabContainer:GetChildren()) do
             if v:IsA("TextButton") and v:FindFirstChild("Icon") then
@@ -608,7 +605,6 @@ function Library:CreateWindow(config)
             tabIcon.ImageColor3 = accent
         end)
 
-        -- Elements builder
         local Elements = {}
 
         function Elements:CreateSection(title)
@@ -680,7 +676,7 @@ function Library:CreateWindow(config)
 
             btn.MouseButton1Click:Connect(toggle)
 
-            -- initialize based on current flag value
+            -- init from flag
             applyState(Library.Flags[flag])
 
             function frame:Set(val)
@@ -728,7 +724,7 @@ function Library:CreateWindow(config)
             nameFrame.Parent = page
             nameFrame.BackgroundColor3 = Library.Theme.Card
             nameFrame.Size = UDim2.new(1, -5, 0, 38)
-            Instance.new("UICorner", nameFrame).CornerRadius = UDim.new(0, 6)
+            Instance.new("UICorner", nameFrame).CornerRadius = UDim.New(0, 6)
 
             local box = Instance.new("TextBox")
             box.Parent = nameFrame
@@ -752,7 +748,7 @@ function Library:CreateWindow(config)
                     local data = Library:LoadConfig(box.Text)
                     if data then
                         print("[Eclipse] Loaded config table:", data)
-                        -- You can manually map data back into UI elements using returned frames if needed.
+                        -- manually map data back into UI if you want full restore
                     end
                 end
             end)
@@ -764,3 +760,4 @@ function Library:CreateWindow(config)
     return Tabs
 end
 
+return Library
